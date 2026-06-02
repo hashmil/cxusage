@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 	"os/exec"
 	"runtime"
@@ -28,6 +29,15 @@ const (
 
 var viewNames = []string{"Overview", "Trends", "Breakdowns", "Sessions", "Help"}
 var groupCycle = []string{"day", "week", "month", "session", "model", "effort", "mode", "model-effort"}
+var loadingBanner = []string{
+	" CCCCC  X   X  U   U   SSSS   AAA    GGGG  EEEEE",
+	"C        X X   U   U  S      A   A  G      E",
+	"C         X    U   U   SSS   AAAAA  G  GG  EEEE",
+	"C        X X   U   U      S  A   A  G   G  E",
+	" CCCCC  X   X   UUU   SSSS   A   A   GGG   EEEEE",
+}
+
+const loadingBannerMinWidth = 62
 
 type Options struct {
 	CodexHome   string
@@ -40,22 +50,23 @@ type Options struct {
 }
 
 type Model struct {
-	options    Options
-	report     usage.Report
-	err        error
-	loading    bool
-	view       int
-	width      int
-	height     int
-	selected   int
-	filtering  bool
-	filter     string
-	groupBy    string
-	timeframe  usage.TimeframeOptions
-	frameIndex int
-	theme      ThemeName
-	progress   float64
-	spinner    spinner.Model
+	options      Options
+	report       usage.Report
+	err          error
+	loading      bool
+	view         int
+	width        int
+	height       int
+	selected     int
+	filtering    bool
+	filter       string
+	groupBy      string
+	timeframe    usage.TimeframeOptions
+	frameIndex   int
+	theme        ThemeName
+	progress     float64
+	loadingFrame int
+	spinner      spinner.Model
 }
 
 type reportLoadedMsg struct {
@@ -107,7 +118,7 @@ func (m Model) Init() tea.Cmd {
 		if m.options.NoAnimation {
 			return m.loadReportCmd()
 		}
-		return tea.Batch(m.loadReportCmd(), m.spinner.Tick)
+		return tea.Batch(m.loadReportCmd(), m.spinner.Tick, m.animationTick())
 	}
 	if m.options.NoAnimation {
 		return nil
@@ -125,6 +136,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.report = msg.report
 		m.err = msg.err
+		m.loadingFrame = 0
 		if m.options.NoAnimation {
 			m.progress = 1
 			return m, nil
@@ -132,7 +144,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.progress = 0
 		return m, m.animationTick()
 	case animationTickMsg:
-		if m.options.NoAnimation || m.loading || m.progress >= 1 {
+		if m.options.NoAnimation {
+			return m, nil
+		}
+		if m.loading {
+			m.loadingFrame++
+			return m, m.animationTick()
+		}
+		if m.progress >= 1 {
 			return m, nil
 		}
 		m.progress = math.Min(1, m.progress+0.08)
@@ -190,11 +209,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return tea.Quit() }
 	case "r":
 		m.loading = true
+		m.loadingFrame = 0
 		m.err = nil
 		if m.options.NoAnimation {
 			return m, m.loadReportCmd()
 		}
-		return m, tea.Batch(m.loadReportCmd(), m.spinner.Tick)
+		return m, tea.Batch(m.loadReportCmd(), m.spinner.Tick, m.animationTick())
 	case "1", "2", "3", "4", "5":
 		m.view = int(key[0] - '1')
 		return m, nil
@@ -214,11 +234,19 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.frameIndex = (m.frameIndex + 1) % len(timeframePresets)
 		m.timeframe = timeframePresets[m.frameIndex].options
 		m.loading = true
-		return m, m.loadReportCmd()
+		m.loadingFrame = 0
+		if m.options.NoAnimation {
+			return m, m.loadReportCmd()
+		}
+		return m, tea.Batch(m.loadReportCmd(), m.spinner.Tick, m.animationTick())
 	case "g":
 		m.groupBy = nextGroup(m.groupBy)
 		m.loading = true
-		return m, m.loadReportCmd()
+		m.loadingFrame = 0
+		if m.options.NoAnimation {
+			return m, m.loadReportCmd()
+		}
+		return m, tea.Batch(m.loadReportCmd(), m.spinner.Tick, m.animationTick())
 	case "/":
 		m.view = 3
 		m.filtering = true
@@ -273,16 +301,7 @@ func (m Model) animationTick() tea.Cmd {
 func (m Model) render() string {
 	s := m.styles()
 	if m.loading {
-		spin := "..."
-		if !m.options.NoAnimation {
-			spin = m.spinner.View()
-		}
-		return strings.Join([]string{
-			s.Title.Render("cxusage"),
-			"",
-			fmt.Sprintf("%s scanning local Codex logs", s.Accent.Render(spin)),
-			s.Muted.Render("No network calls. Reading ~/.codex/sessions and ~/.codex/archived_sessions."),
-		}, "\n")
+		return m.renderLoading()
 	}
 	if m.err != nil {
 		return strings.Join([]string{
@@ -314,9 +333,67 @@ func (m Model) render() string {
 	return strings.Join(parts, "\n")
 }
 
+func (m Model) renderLoading() string {
+	s := m.styles()
+	spin := "..."
+	if !m.options.NoAnimation {
+		spin = m.spinner.View()
+	}
+	rows := []string{m.renderLoadingTitle()}
+	rows = append(rows,
+		"",
+		fmt.Sprintf("%s scanning local Codex logs", s.Accent.Render(spin)),
+		s.Muted.Render("No network calls. Reading ~/.codex/sessions and ~/.codex/archived_sessions."),
+	)
+	return strings.Join(rows, "\n")
+}
+
+func (m Model) renderLoadingTitle() string {
+	s := m.styles()
+	if m.width < loadingBannerMinWidth || m.height < 14 {
+		return s.Title.Render("cxusage")
+	}
+	lines := make([]string, len(loadingBanner))
+	for i, line := range loadingBanner {
+		lines[i] = m.renderLoadingBannerLine(line, i)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderLoadingBannerLine(line string, row int) string {
+	if m.options.NoColor {
+		return line
+	}
+	if m.options.NoAnimation {
+		return m.styles().Title.Render(line)
+	}
+	s := m.styles()
+	runes := []rune(line)
+	out := strings.Builder{}
+	sweep := (m.loadingFrame * 2) % (len(runes) + 18)
+	for col, char := range runes {
+		if char == ' ' {
+			out.WriteRune(char)
+			continue
+		}
+		distance := abs(col + row - sweep)
+		switch {
+		case distance <= 1:
+			out.WriteString(s.Accent.Render(string(char)))
+		case distance <= 3:
+			out.WriteString(s.Output.Render(string(char)))
+		case distance <= 6:
+			out.WriteString(s.Success.Render(string(char)))
+		default:
+			out.WriteString(s.Muted.Render(string(char)))
+		}
+	}
+	return out.String()
+}
+
 func (m Model) renderHeader() string {
 	s := m.styles()
-	right := fmt.Sprintf("%s | %s | theme %s", m.report.GroupBy, timeframeLabel(m.timeframe), m.theme)
+	right := fmt.Sprintf("%s · %s · theme %s", m.report.GroupBy, timeframeLabel(m.timeframe), m.theme)
 	title := s.Title.Render("cxusage")
 	if m.width < 72 {
 		return title + "\n" + s.Muted.Render(right)
@@ -354,7 +431,7 @@ func (m Model) renderOverview() string {
 		m.kpiCard("Sessions", formatInt(int64(m.report.SessionsCounted)), m.styles().Warning),
 		m.kpiCard("Files / events", fmt.Sprintf("%s / %s", formatInt(int64(m.report.FilesCounted)), formatInt(int64(m.report.EventsCounted))), m.styles().Output),
 	}
-	if m.width >= 92 {
+	if m.width >= 80 {
 		rows = append(rows,
 			lipgloss.JoinHorizontal(lipgloss.Top, cards[0], " ", cards[1]),
 			lipgloss.JoinHorizontal(lipgloss.Top, cards[2], " ", cards[3]),
@@ -380,7 +457,7 @@ func (m Model) kpiCard(label, value string, valueStyle lipgloss.Style) string {
 	s := m.styles()
 	return s.Panel.Width(width).Render(
 		s.Muted.Render(label) + "\n" +
-			valueStyle.Render(truncatePlain(value, width-4)),
+			valueStyle.Render(truncatePlain(value, max(1, width-4))),
 	)
 }
 
@@ -390,7 +467,12 @@ func (m Model) metricLine(label string, value, total int64) string {
 	if total > 0 {
 		ratio = float64(value) / float64(total)
 	}
-	return fmt.Sprintf("%-16s %s %12s", label, m.progressBar(ratio, barWidth), formatInt(value))
+	fill := m.breakdownFillColor("Token types", label, 0)
+	valueText := formatInt(value)
+	if !m.options.NoColor {
+		valueText = lipgloss.NewStyle().Foreground(fill).Render(valueText)
+	}
+	return fmt.Sprintf("%-16s %s  %s", label, m.progressBarWithColor(ratio, barWidth, fill), padRight(valueText, 14))
 }
 
 func (m Model) renderTrends() string {
@@ -402,7 +484,7 @@ func (m Model) renderTrends() string {
 	for i, row := range rows {
 		values[i] = float64(row.Usage.TotalTokens)
 	}
-	chart := m.lineChart(values, max(30, min(m.width-6, 118)), max(8, min(m.height-12, 16)))
+	chart := m.lineChart(values, max(30, min(m.width-4, 118)), max(6, min(m.height-13, 10)))
 	stats := lipgloss.JoinHorizontal(lipgloss.Top,
 		m.statChip("Peak", formatInt(maxUsage(rows))+" tokens", m.styles().Danger),
 		" ",
@@ -410,9 +492,14 @@ func (m Model) renderTrends() string {
 		" ",
 		m.statChip("Estimated cost", formatCost(sumCost(rows)), m.styles().Success),
 	)
+	rangeLabel := ""
+	if len(rows) > 1 {
+		rangeLabel = m.styles().Muted.Render(rows[0].Label + " → " + rows[len(rows)-1].Label)
+	}
 	return strings.Join([]string{
 		m.styles().Section.Render("Token trend"),
-		m.styles().Panel.Width(max(34, min(m.width-2, 122))).Render(chart),
+		chart,
+		rangeLabel,
 		"",
 		stats,
 	}, "\n")
@@ -449,12 +536,12 @@ func (m Model) breakdown(title string, values map[string]int64) string {
 	})
 	barWidth := max(8, min(34, m.width-34))
 	lines := []string{s.Section.Render(title)}
-	for _, key := range keys[:min(len(keys), 8)] {
+	for i, key := range keys[:min(len(keys), 8)] {
 		ratio := 0.0
 		if maxValue > 0 {
 			ratio = float64(values[key]) / float64(maxValue)
 		}
-		lines = append(lines, fmt.Sprintf("%-18s %s %12s", truncatePlain(key, 18), m.progressBar(ratio, barWidth), formatInt(values[key])))
+		lines = append(lines, fmt.Sprintf("%-18s %s %12s", truncatePlain(key, 18), m.breakdownBar(title, key, i, ratio, barWidth), formatInt(values[key])))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -484,20 +571,24 @@ func (m Model) renderSessionsTable(rows []usage.ReportRow, limit int) string {
 
 func (m Model) renderWideRows(rows []usage.ReportRow, limit int) string {
 	s := m.styles()
-	dateW, sessW, tokenW, costW := 12, 8, 15, 10
-	tableOverhead := 22
-	metaW := max(10, (m.width-tableOverhead-dateW-sessW-tokenW-costW)/3)
-	widths := []int{dateW, sessW, metaW, metaW, metaW, tokenW, costW}
-	headers := []string{"Date", "Sessions", "Models", "Efforts", "Modes", "Tokens", "Cost"}
-	lines := []string{tableBorder(widths), tableRow(headers, widths, s.Header)}
-	lines = append(lines, tableBorder(widths))
+	markerW, dateW, sessW, tokenW, costW := 2, 12, 8, 13, 9
+	gapWidth := 2
+	columnCount := 8
+	fixedWidth := markerW + dateW + sessW + tokenW + costW + gapWidth*(columnCount-1)
+	metaW := max(10, (m.width-fixedWidth)/3)
+	widths := []int{markerW, dateW, sessW, metaW, metaW, metaW, tokenW, costW}
+	aligns := []string{"left", "left", "right", "left", "left", "left", "right", "right"}
+	headers := [][]string{{""}, {"Date"}, {"Sessions"}, {"Models"}, {"Efforts"}, {"Modes"}, {"Tokens"}, {"Cost"}}
+	headerStyles := []lipgloss.Style{s.Muted, s.Muted, s.Muted, s.Muted, s.Muted, s.Muted, s.Muted, s.Muted}
+	lines := []string{ledgerMultiRow(headers, widths, headerStyles, aligns)}
 	for i, row := range rows[:min(len(rows), limit)] {
-		prefix := " "
+		marker := ""
 		if i == m.selected {
-			prefix = ">"
+			marker = "›"
 		}
 		cells := [][]string{
-			{prefix + row.Label},
+			{marker},
+			{row.Label},
 			{formatInt(int64(row.Sessions))},
 			wrapList(row.Models, metaW),
 			wrapList(row.Efforts, metaW),
@@ -505,19 +596,21 @@ func (m Model) renderWideRows(rows []usage.ReportRow, limit int) string {
 			{formatInt(row.Usage.TotalTokens)},
 			{formatCost(row.CostUSD)},
 		}
-		lines = append(lines, tableMultiRow(cells, widths))
-		lines = append(lines, tableBorder(widths))
+		styles := []lipgloss.Style{s.Warning, lipgloss.NewStyle(), lipgloss.NewStyle(), lipgloss.NewStyle(), lipgloss.NewStyle(), lipgloss.NewStyle(), lipgloss.NewStyle(), lipgloss.NewStyle()}
+		lines = append(lines, ledgerMultiRow(cells, widths, styles, aligns))
 	}
-	lines = append(lines, tableMultiRow([][]string{
-		{s.Total.Render("Total")},
-		{s.Total.Render(formatInt(int64(m.report.SessionsCounted)))},
-		styleLines(joinListLines(m.report.Rows, func(r usage.ReportRow) []string { return r.Models }, metaW), s.Total),
-		styleLines(joinListLines(m.report.Rows, func(r usage.ReportRow) []string { return r.Efforts }, metaW), s.Total),
-		styleLines(joinListLines(m.report.Rows, func(r usage.ReportRow) []string { return r.Modes }, metaW), s.Total),
-		{s.Total.Render(formatInt(m.report.Totals.TotalTokens))},
-		{s.Total.Render(formatCost(m.report.TotalCostUSD))},
-	}, widths))
-	lines = append(lines, tableBorder(widths))
+	lines = append(lines, s.Border.Render(strings.Repeat("─", ledgerWidth(widths))))
+	totalStyles := []lipgloss.Style{s.Total, s.Total, s.Total, s.Total, s.Total, s.Total, s.Total, s.Total}
+	lines = append(lines, ledgerMultiRow([][]string{
+		{""},
+		{"Total"},
+		{formatInt(int64(m.report.SessionsCounted))},
+		joinListLines(m.report.Rows, func(r usage.ReportRow) []string { return r.Models }, metaW),
+		joinListLines(m.report.Rows, func(r usage.ReportRow) []string { return r.Efforts }, metaW),
+		joinListLines(m.report.Rows, func(r usage.ReportRow) []string { return r.Modes }, metaW),
+		{formatInt(m.report.Totals.TotalTokens)},
+		{formatCost(m.report.TotalCostUSD)},
+	}, widths, totalStyles, aligns))
 	return strings.Join(lines, "\n")
 }
 
@@ -525,21 +618,21 @@ func (m Model) renderCompactRows(rows []usage.ReportRow, limit int) string {
 	s := m.styles()
 	lines := []string{}
 	for i, row := range rows[:min(len(rows), limit)] {
-		prefix := " "
+		marker := " "
 		if i == m.selected {
-			prefix = ">"
+			marker = s.Warning.Render("›")
 		}
 		top := fmt.Sprintf("%s %s  sessions %s  %s  %s",
-			prefix,
+			marker,
 			row.Label,
 			formatInt(int64(row.Sessions)),
 			formatInt(row.Usage.TotalTokens),
 			formatCost(row.CostUSD),
 		)
 		lines = append(lines, s.Header.Render(top))
-		lines = append(lines, "  models  "+strings.Join(wrapList(row.Models, max(10, m.width-10)), "\n          "))
-		lines = append(lines, "  efforts "+strings.Join(wrapList(row.Efforts, max(10, m.width-10)), "\n          "))
-		lines = append(lines, "  modes   "+strings.Join(wrapList(row.Modes, max(10, m.width-10)), "\n          "))
+		lines = append(lines, compactMetaLine("models", row.Models, max(10, m.width-10), s))
+		lines = append(lines, compactMetaLine("efforts", row.Efforts, max(10, m.width-10), s))
+		lines = append(lines, compactMetaLine("modes", row.Modes, max(10, m.width-10), s))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -569,12 +662,12 @@ func (m Model) renderHelp() string {
 
 func (m Model) renderFooter() string {
 	s := m.styles()
-	status := fmt.Sprintf("rows %d | group %s | timeframe %s | t theme | a animation | ? help", len(m.filteredRows()), m.groupBy, timeframeLabel(m.timeframe))
+	status := fmt.Sprintf("rows %d · group %s · timeframe %s · t theme · a animation · ? help", len(m.filteredRows()), m.groupBy, timeframeLabel(m.timeframe))
 	if m.options.NoAnimation {
-		status += " | animation off"
+		status += " · animation off"
 	}
 	if m.options.NoColor {
-		status += " | color off"
+		status += " · color off"
 	}
 	return s.Muted.Render(status)
 }
@@ -620,47 +713,47 @@ func (m Model) styles() styleSet {
 			Title: base.Bold(true), Header: base.Bold(true), Section: base.Bold(true),
 			Muted: base, Accent: base, Success: base, Warning: base, Danger: base,
 			Output: base, Chart: base, Bar: base, Border: base, Tab: base,
-			Panel:     lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2),
+			Panel:     lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1),
 			TabActive: base.Bold(true), Total: base.Bold(true),
 		}
 	}
 	if m.theme == ThemeLight {
 		return styleSet{
-			Title:     lipgloss.NewStyle().Foreground(lipgloss.Color("#006D77")).Bold(true),
-			Header:    lipgloss.NewStyle().Foreground(lipgloss.Color("#005F73")).Bold(true),
-			Section:   lipgloss.NewStyle().Foreground(lipgloss.Color("#7A3E9D")).Bold(true),
-			Muted:     lipgloss.NewStyle().Foreground(lipgloss.Color("#5F6C7B")),
-			Accent:    lipgloss.NewStyle().Foreground(lipgloss.Color("#008C9E")).Bold(true),
-			Success:   lipgloss.NewStyle().Foreground(lipgloss.Color("#2F855A")).Bold(true),
-			Warning:   lipgloss.NewStyle().Foreground(lipgloss.Color("#B7791F")).Bold(true),
-			Danger:    lipgloss.NewStyle().Foreground(lipgloss.Color("#C53030")).Bold(true),
-			Output:    lipgloss.NewStyle().Foreground(lipgloss.Color("#6B46C1")).Bold(true),
-			Chart:     lipgloss.NewStyle().Foreground(lipgloss.Color("#0077B6")),
-			Bar:       lipgloss.NewStyle().Foreground(lipgloss.Color("#2F855A")),
-			Border:    lipgloss.NewStyle().Foreground(lipgloss.Color("#4A5568")),
-			Panel:     lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#94A3B8")).Padding(1, 2),
-			Tab:       lipgloss.NewStyle().Foreground(lipgloss.Color("#4A5568")),
-			TabActive: lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#006D77")).Bold(true),
-			Total:     lipgloss.NewStyle().Foreground(lipgloss.Color("#7A3E9D")).Bold(true),
+			Title:     lipgloss.NewStyle().Foreground(lipgloss.Color("#0F766E")).Bold(true),
+			Header:    lipgloss.NewStyle().Foreground(lipgloss.Color("#1F2937")),
+			Section:   lipgloss.NewStyle().Foreground(lipgloss.Color("#4F46E5")).Bold(true),
+			Muted:     lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")),
+			Accent:    lipgloss.NewStyle().Foreground(lipgloss.Color("#EA580C")).Bold(true),
+			Success:   lipgloss.NewStyle().Foreground(lipgloss.Color("#15803D")).Bold(true),
+			Warning:   lipgloss.NewStyle().Foreground(lipgloss.Color("#A16207")).Bold(true),
+			Danger:    lipgloss.NewStyle().Foreground(lipgloss.Color("#DC2626")).Bold(true),
+			Output:    lipgloss.NewStyle().Foreground(lipgloss.Color("#0891B2")).Bold(true),
+			Chart:     lipgloss.NewStyle().Foreground(lipgloss.Color("#2563EB")),
+			Bar:       lipgloss.NewStyle().Foreground(lipgloss.Color("#15803D")),
+			Border:    lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")),
+			Panel:     lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#CBD5E1")).Padding(0, 1),
+			Tab:       lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563")),
+			TabActive: lipgloss.NewStyle().Foreground(lipgloss.Color("#111827")).Background(lipgloss.Color("#D9E0FF")),
+			Total:     lipgloss.NewStyle().Foreground(lipgloss.Color("#4F46E5")).Bold(true),
 		}
 	}
 	return styleSet{
-		Title:     lipgloss.NewStyle().Foreground(lipgloss.Color("#8BE9FD")).Bold(true),
-		Header:    lipgloss.NewStyle().Foreground(lipgloss.Color("#8BE9FD")).Bold(true),
-		Section:   lipgloss.NewStyle().Foreground(lipgloss.Color("#BD93F9")).Bold(true),
-		Muted:     lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA4B2")),
-		Accent:    lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Bold(true),
-		Success:   lipgloss.NewStyle().Foreground(lipgloss.Color("#A3E635")).Bold(true),
-		Warning:   lipgloss.NewStyle().Foreground(lipgloss.Color("#F1FA8C")).Bold(true),
-		Danger:    lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true),
-		Output:    lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6")).Bold(true),
-		Chart:     lipgloss.NewStyle().Foreground(lipgloss.Color("#8BE9FD")),
-		Bar:       lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")),
-		Border:    lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")),
-		Panel:     lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#6272A4")).Padding(1, 2),
-		Tab:       lipgloss.NewStyle().Foreground(lipgloss.Color("#C9D1D9")),
-		TabActive: lipgloss.NewStyle().Foreground(lipgloss.Color("#111827")).Background(lipgloss.Color("#8BE9FD")).Bold(true),
-		Total:     lipgloss.NewStyle().Foreground(lipgloss.Color("#F1FA8C")).Bold(true),
+		Title:     lipgloss.NewStyle().Foreground(lipgloss.Color("#8BD5CA")).Bold(true),
+		Header:    lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")),
+		Section:   lipgloss.NewStyle().Foreground(lipgloss.Color("#C6D0F5")).Bold(true),
+		Muted:     lipgloss.NewStyle().Foreground(lipgloss.Color("#7F849C")),
+		Accent:    lipgloss.NewStyle().Foreground(lipgloss.Color("#EF8354")).Bold(true),
+		Success:   lipgloss.NewStyle().Foreground(lipgloss.Color("#80C990")).Bold(true),
+		Warning:   lipgloss.NewStyle().Foreground(lipgloss.Color("#EBCB8B")).Bold(true),
+		Danger:    lipgloss.NewStyle().Foreground(lipgloss.Color("#E78284")).Bold(true),
+		Output:    lipgloss.NewStyle().Foreground(lipgloss.Color("#8BD5CA")).Bold(true),
+		Chart:     lipgloss.NewStyle().Foreground(lipgloss.Color("#C6D0F5")),
+		Bar:       lipgloss.NewStyle().Foreground(lipgloss.Color("#80C990")),
+		Border:    lipgloss.NewStyle().Foreground(lipgloss.Color("#45475A")),
+		Panel:     lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475A")).Padding(0, 1),
+		Tab:       lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4")),
+		TabActive: lipgloss.NewStyle().Foreground(lipgloss.Color("#181825")).Background(lipgloss.Color("#C6D0F5")),
+		Total:     lipgloss.NewStyle().Foreground(lipgloss.Color("#EBCB8B")).Bold(true),
 	}
 }
 
@@ -749,26 +842,112 @@ func nextGroup(current string) string {
 	return groupCycle[0]
 }
 
+func abs(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
+}
+
 func (m Model) progressBar(ratio float64, width int) string {
+	fill := lipgloss.Color("#80C990")
+	if m.theme == ThemeLight {
+		fill = lipgloss.Color("#15803D")
+	}
+	return m.progressBarWithColor(ratio, width, fill)
+}
+
+func (m Model) progressBarWithColor(ratio float64, width int, fill color.Color) string {
 	ratio = math.Max(0, math.Min(1, ratio))
 	if m.options.NoColor {
 		return bar(ratio, width)
+	}
+	empty := lipgloss.Color("#313244")
+	if m.theme == ThemeLight {
+		empty = lipgloss.Color("#E5E7EB")
 	}
 	p := progress.New(
 		progress.WithWidth(width),
 		progress.WithoutPercentage(),
 		progress.WithFillCharacters('█', '░'),
-		progress.WithColors(lipgloss.Color("#50FA7B"), lipgloss.Color("#334155")),
+		progress.WithColors(fill, empty),
 	)
-	if m.theme == ThemeLight {
-		p = progress.New(
-			progress.WithWidth(width),
-			progress.WithoutPercentage(),
-			progress.WithFillCharacters('█', '░'),
-			progress.WithColors(lipgloss.Color("#2F855A"), lipgloss.Color("#CBD5E1")),
-		)
-	}
 	return p.ViewAs(ratio)
+}
+
+func (m Model) breakdownBar(title, key string, index int, ratio float64, width int) string {
+	return m.progressBarWithColor(ratio, width, m.breakdownFillColor(title, key, index))
+}
+
+func (m Model) breakdownFillColor(title, key string, index int) color.Color {
+	normalizedTitle := strings.ToLower(strings.TrimSpace(title))
+	normalizedKey := strings.ToLower(strings.TrimSpace(key))
+	if m.theme == ThemeLight {
+		switch normalizedTitle {
+		case "efforts":
+			return mapColor(normalizedKey, map[string]string{
+				"xhigh":   "#DC2626",
+				"high":    "#A16207",
+				"medium":  "#EA580C",
+				"low":     "#15803D",
+				"unknown": "#6B7280",
+			}, "#0891B2")
+		case "modes":
+			return mapColor(normalizedKey, map[string]string{
+				"default": "#0891B2",
+				"plan":    "#4F46E5",
+				"unknown": "#6B7280",
+			}, "#0891B2")
+		case "token types":
+			return mapColor(normalizedKey, map[string]string{
+				"input":            "#15803D",
+				"cached input":     "#0891B2",
+				"output":           "#EA580C",
+				"reasoning output": "#4F46E5",
+			}, "#0891B2")
+		default:
+			return paletteColor(index, []string{"#0891B2", "#4F46E5", "#EA580C", "#A16207"})
+		}
+	}
+	switch normalizedTitle {
+	case "efforts":
+		return mapColor(normalizedKey, map[string]string{
+			"xhigh":   "#E78284",
+			"high":    "#EBCB8B",
+			"medium":  "#EF8354",
+			"low":     "#80C990",
+			"unknown": "#7F849C",
+		}, "#8BD5CA")
+	case "modes":
+		return mapColor(normalizedKey, map[string]string{
+			"default": "#8BD5CA",
+			"plan":    "#C6D0F5",
+			"unknown": "#7F849C",
+		}, "#8BD5CA")
+	case "token types":
+		return mapColor(normalizedKey, map[string]string{
+			"input":            "#80C990",
+			"cached input":     "#8BD5CA",
+			"output":           "#EF8354",
+			"reasoning output": "#C6D0F5",
+		}, "#8BD5CA")
+	default:
+		return paletteColor(index, []string{"#8BD5CA", "#C6D0F5", "#EF8354", "#EBCB8B"})
+	}
+}
+
+func mapColor(key string, values map[string]string, fallback string) color.Color {
+	if color, ok := values[key]; ok {
+		return lipgloss.Color(color)
+	}
+	return lipgloss.Color(fallback)
+}
+
+func paletteColor(index int, colors []string) color.Color {
+	if len(colors) == 0 {
+		return lipgloss.Color("")
+	}
+	return lipgloss.Color(colors[index%len(colors)])
 }
 
 func (m Model) lineChart(values []float64, width, height int) string {
@@ -778,8 +957,8 @@ func (m Model) lineChart(values []float64, width, height int) string {
 	options := []asciigraph.Option{
 		asciigraph.Width(max(12, width-14)),
 		asciigraph.Height(max(4, height)),
+		asciigraph.LowerBound(0),
 		asciigraph.Precision(0),
-		asciigraph.SeriesChars(asciigraph.CreateCharSet("•")),
 		asciigraph.YAxisValueFormatter(func(value float64) string {
 			return formatCompactInt(int64(math.Round(value)))
 		}),
@@ -787,36 +966,32 @@ func (m Model) lineChart(values []float64, width, height int) string {
 	if !m.options.NoColor {
 		options = append(options, asciigraph.SeriesColors(asciigraph.Cyan), asciigraph.AxisColor(asciigraph.DarkGray), asciigraph.LabelColor(asciigraph.LightSlateGray))
 	}
-	return asciigraph.Plot(values, options...)
+	return m.withChartBottomAxis(asciigraph.Plot(values, options...))
 }
 
 func (m Model) statChip(label, value string, valueStyle lipgloss.Style) string {
 	s := m.styles()
-	content := s.Muted.Render(label) + "\n" + valueStyle.Render(value)
-	return s.Panel.Padding(0, 1).Render(content)
+	return lipgloss.NewStyle().Width(22).Render(s.Muted.Render(label) + "\n" + valueStyle.Render(truncatePlain(value, 22)))
 }
 
-func tableBorder(widths []int) string {
-	parts := make([]string, len(widths))
-	for i, width := range widths {
-		parts[i] = strings.Repeat("-", width+2)
+func compactMetaLine(label string, values []string, width int, s styleSet) string {
+	prefix := "  " + s.Muted.Render(padRight(label, 7)) + " "
+	lines := wrapList(values, max(8, width-10))
+	return prefix + strings.Join(lines, "\n          ")
+}
+
+func ledgerWidth(widths []int) int {
+	if len(widths) == 0 {
+		return 0
 	}
-	return "+" + strings.Join(parts, "+") + "+"
-}
-
-func tableRow(cells []string, widths []int, style lipgloss.Style) string {
-	out := make([]string, len(widths))
-	for i, width := range widths {
-		value := ""
-		if i < len(cells) {
-			value = cells[i]
-		}
-		out[i] = " " + padRight(style.Render(truncatePlain(value, width)), width) + " "
+	total := 0
+	for _, width := range widths {
+		total += width
 	}
-	return "|" + strings.Join(out, "|") + "|"
+	return total + (len(widths)-1)*2
 }
 
-func tableMultiRow(cells [][]string, widths []int) string {
+func ledgerMultiRow(cells [][]string, widths []int, styles []lipgloss.Style, aligns []string) string {
 	height := 1
 	for _, cell := range cells {
 		height = max(height, len(cell))
@@ -829,11 +1004,41 @@ func tableMultiRow(cells [][]string, widths []int) string {
 			if col < len(cells) && row < len(cells[col]) {
 				value = cells[col][row]
 			}
-			parts[col] = " " + padRight(truncatePlain(value, width), width) + " "
+			if col < len(styles) {
+				value = styles[col].Render(value)
+			}
+			value = truncatePlain(value, width)
+			if col < len(aligns) && aligns[col] == "right" {
+				parts[col] = padLeft(value, width)
+			} else {
+				parts[col] = padRight(value, width)
+			}
 		}
-		lines[row] = "|" + strings.Join(parts, "|") + "|"
+		lines[row] = strings.Join(parts, "  ")
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) withChartBottomAxis(chart string) string {
+	lines := strings.Split(chart, "\n")
+	axisColumn := -1
+	maxWidth := 0
+	for _, line := range lines {
+		plain := stripANSI(line)
+		width := ansi.StringWidth(plain)
+		maxWidth = max(maxWidth, width)
+		for _, marker := range []string{"┤", "┼"} {
+			if index := strings.Index(plain, marker); index >= 0 {
+				axisColumn = ansi.StringWidth(plain[:index])
+				break
+			}
+		}
+	}
+	if axisColumn < 0 || maxWidth <= axisColumn {
+		return chart
+	}
+	baseline := strings.Repeat(" ", axisColumn) + "└" + strings.Repeat("─", maxWidth-axisColumn-1)
+	return chart + "\n" + m.styles().Muted.Render(baseline)
 }
 
 func wrapList(values []string, width int) []string {
@@ -891,14 +1096,6 @@ func joinListLines(rows []usage.ReportRow, values func(usage.ReportRow) []string
 	}
 	sort.Strings(out)
 	return wrapList(out, width)
-}
-
-func styleLines(lines []string, style lipgloss.Style) []string {
-	out := make([]string, len(lines))
-	for i, line := range lines {
-		out[i] = style.Render(line)
-	}
-	return out
 }
 
 func aggregateRows(rows []usage.ReportRow, values func(usage.ReportRow) []string) map[string]int64 {
@@ -1010,6 +1207,14 @@ func padRight(value string, width int) string {
 		return value
 	}
 	return value + strings.Repeat(" ", width-visible)
+}
+
+func padLeft(value string, width int) string {
+	visible := ansi.StringWidth(value)
+	if visible >= width {
+		return value
+	}
+	return strings.Repeat(" ", width-visible) + value
 }
 
 func truncatePlain(value string, width int) string {

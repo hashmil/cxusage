@@ -145,17 +145,107 @@ func TestWideWidthTableDoesNotOverflow(t *testing.T) {
 	}
 }
 
-func TestOverviewUsesRoundedPanelsAndSolidProgressBars(t *testing.T) {
+func TestLoadingViewUsesWideAnimatedBanner(t *testing.T) {
+	model := NewModel(Options{Theme: "dark"})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
+	updated := next.(Model)
+
+	first := updated.View().Content
+	plain := stripANSI(first)
+	if !strings.Contains(plain, " CCCCC  X   X  U   U   SSSS   AAA    GGGG  EEEEE") {
+		t.Fatalf("loading view should render wide CXUSAGE banner, got:\n%s", plain)
+	}
+	if strings.Contains(plain, "╭") || strings.Contains(plain, "╰") {
+		t.Fatalf("loading banner should not use a boxed panel, got:\n%s", plain)
+	}
+
+	next, _ = updated.Update(animationTickMsg{})
+	animated := next.(Model)
+	second := animated.View().Content
+	if first == second {
+		t.Fatalf("loading animation tick should change styled banner output")
+	}
+	if stripANSI(first) != stripANSI(second) {
+		t.Fatalf("loading animation should only change styling, not layout:\nfirst:\n%s\nsecond:\n%s", stripANSI(first), stripANSI(second))
+	}
+}
+
+func TestLoadingViewFallsBackForNarrowTerminals(t *testing.T) {
+	model := NewModel(Options{Theme: "dark", NoAnimation: true})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 48, Height: 14})
+	updated := next.(Model)
+	rendered := updated.View().Content
+	plain := stripANSI(rendered)
+	if strings.Contains(plain, "CCCCC") {
+		t.Fatalf("narrow loading view should not render wide banner, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "cxusage") {
+		t.Fatalf("narrow loading view should keep compact title, got:\n%s", plain)
+	}
+	for _, line := range strings.Split(plain, "\n") {
+		if len([]rune(line)) > 48 {
+			t.Fatalf("line width %d exceeds 48: %q", len([]rune(line)), line)
+		}
+	}
+}
+
+func TestOverviewUsesKPIBoxesAndSolidProgressBars(t *testing.T) {
 	model := NewLoadedModel(sampleReport(), Options{Theme: "dark", NoAnimation: true})
 	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	updated := next.(Model)
 	rendered := updated.View().Content
 	plain := stripANSI(rendered)
-	if !strings.Contains(plain, "╭") || !strings.Contains(plain, "╰") {
-		t.Fatalf("overview should use rounded panels, got:\n%s", plain)
+	if !strings.Contains(plain, "Total tokens") || !strings.Contains(plain, "Estimated cost") {
+		t.Fatalf("overview should render KPI boxes, got:\n%s", plain)
+	}
+	if !hasStandaloneRoundedPanelLine(plain) {
+		t.Fatalf("overview should render boxed KPI cards, got:\n%s", plain)
 	}
 	if !strings.Contains(plain, "█") {
 		t.Fatalf("overview should use solid progress bars, got:\n%s", plain)
+	}
+}
+
+func TestOverviewTokenMetricsUseSemanticColorsAndAlignedValues(t *testing.T) {
+	model := NewLoadedModel(sampleReport(), Options{Theme: "dark", NoAnimation: true})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	updated := next.(Model)
+	rendered := updated.renderOverview()
+	for _, sequence := range []string{
+		rgbSequence(128, 201, 144),
+		rgbSequence(139, 213, 202),
+		rgbSequence(239, 131, 84),
+		rgbSequence(198, 208, 245),
+	} {
+		if !strings.Contains(rendered, sequence) {
+			t.Fatalf("overview token rows should use semantic colors; missing %q in:\n%s", sequence, rendered)
+		}
+	}
+
+	plain := stripANSI(rendered)
+	lines := overviewMetricLines(plain)
+	if len(lines) != 4 {
+		t.Fatalf("expected 4 token metric lines, got %d:\n%s", len(lines), plain)
+	}
+	values := []string{
+		formatInt(sampleReport().Totals.InputTokens),
+		formatInt(sampleReport().Totals.CachedInputTokens),
+		formatInt(sampleReport().Totals.OutputTokens),
+		formatInt(sampleReport().Totals.ReasoningOutputTokens),
+	}
+	valueColumn := -1
+	for i, line := range lines {
+		index := strings.Index(line, values[i])
+		if index < 0 {
+			t.Fatalf("metric line missing value %q: %q", values[i], line)
+		}
+		if valueColumn < 0 {
+			valueColumn = index
+			continue
+		}
+		if index != valueColumn {
+			t.Fatalf("metric values should start at column %d, got %d in line %q", valueColumn, index, line)
+		}
 	}
 }
 
@@ -175,22 +265,89 @@ func TestTrendsUsesSingleLineChart(t *testing.T) {
 	if !strings.Contains(rendered, "Peak") || !strings.Contains(rendered, "Average") {
 		t.Fatalf("trends should include summary stats:\n%s", rendered)
 	}
+	if hasStandaloneRoundedPanelLine(rendered) {
+		t.Fatalf("trends should avoid heavy rounded panels:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "•") {
+		t.Fatalf("trends should not use a dot-only scatter chart:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "─") && !strings.Contains(rendered, "│") {
+		t.Fatalf("trends should use continuous line glyphs:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "0 ┼") && !strings.Contains(rendered, "0 ┤") {
+		t.Fatalf("trends should start the y-axis at 0:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "└──") {
+		t.Fatalf("trends should render a bottom horizontal axis:\n%s", rendered)
+	}
 	if !strings.Contains(rendered, "K ┤") {
 		t.Fatalf("trends should abbreviate chart axis labels:\n%s", rendered)
 	}
 }
 
-func TestTotalRowRendersMetadataInsideTable(t *testing.T) {
+func TestWideRowsUseBorderlessLedgerTable(t *testing.T) {
 	model := NewLoadedModel(sampleReportWithManyRows(), Options{Theme: "dark", NoAnimation: true})
 	next, _ := model.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	updated := next.(Model)
 	table := stripANSI(updated.renderWideRows(updated.report.Rows, 10))
+	if strings.Contains(table, "+---") {
+		t.Fatalf("table should not use broken ASCII dash borders:\n%s", table)
+	}
 	for _, line := range strings.Split(table, "\n") {
 		if line == "" {
 			continue
 		}
-		if !strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "|") {
-			t.Fatalf("table content escaped cell borders: %q\n%s", line, table)
+		if strings.HasPrefix(line, "|") && strings.HasSuffix(line, "|") {
+			t.Fatalf("table should not use full row boxing: %q\n%s", line, table)
 		}
 	}
+	if !strings.Contains(table, "Total") {
+		t.Fatalf("table should keep a total row:\n%s", table)
+	}
+	if !strings.Contains(table, "─") {
+		t.Fatalf("table should use a single thin separator before totals:\n%s", table)
+	}
+}
+
+func TestBreakdownsUseMeaningfulColorPalette(t *testing.T) {
+	model := NewLoadedModel(sampleReportWithManyRows(), Options{Theme: "dark", NoAnimation: true})
+	rendered := model.renderBreakdowns()
+	for _, sequence := range []string{
+		rgbSequence(139, 213, 202),
+		rgbSequence(198, 208, 245),
+		rgbSequence(239, 131, 84),
+		rgbSequence(231, 130, 132),
+	} {
+		if !strings.Contains(rendered, sequence) {
+			t.Fatalf("breakdowns should use semantic bar colors; missing %q in:\n%s", sequence, rendered)
+		}
+	}
+}
+
+func hasStandaloneRoundedPanelLine(value string) bool {
+	for _, line := range strings.Split(value, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "╭") || strings.HasPrefix(trimmed, "╰") {
+			return true
+		}
+	}
+	return false
+}
+
+func rgbSequence(red, green, blue int) string {
+	return "\x1b[38;2;" + formatInt(int64(red)) + ";" + formatInt(int64(green)) + ";" + formatInt(int64(blue)) + "m"
+}
+
+func overviewMetricLines(value string) []string {
+	prefixes := []string{"Input", "Cached input", "Output", "Reasoning output"}
+	out := []string{}
+	for _, line := range strings.Split(value, "\n") {
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(line, prefix) {
+				out = append(out, line)
+				break
+			}
+		}
+	}
+	return out
 }
