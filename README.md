@@ -31,27 +31,46 @@ This is an unofficial open source tool for enterprise Codex users who can run Co
 
 ## Install
 
-Requires Go 1.25 or newer.
+There are three practical ways to install `cxusage`.
 
-Install directly from GitHub:
+### Option 1: Go Install
+
+Use this if you already have Go 1.25 or newer installed.
 
 ```sh
 go install github.com/hashmil/cxusage/cmd/cxusage@latest
 ```
 
-If `~/go/bin` is on your `PATH`, run:
+Go installs the binary into `$(go env GOPATH)/bin`, which is usually `~/go/bin`.
+
+If `~/go/bin` is already on your `PATH`, run:
 
 ```sh
 cxusage
 ```
 
-If it is not on your `PATH`, run:
+If it is not on your `PATH`, run it directly:
 
 ```sh
 ~/go/bin/cxusage
 ```
 
-Or clone and install from source:
+To make `cxusage` available from any terminal, add Go's bin directory to your shell profile:
+
+```sh
+echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Then run:
+
+```sh
+cxusage
+```
+
+### Option 2: Clone And Build From Source
+
+Use this if you want to inspect or modify the source locally.
 
 ```sh
 git clone https://github.com/hashmil/cxusage.git
@@ -59,14 +78,44 @@ cd cxusage
 go install ./cmd/cxusage
 ```
 
-Or build a local binary:
+Or build a binary in the repo:
 
 ```sh
 go build -o bin/cxusage ./cmd/cxusage
 ./bin/cxusage
 ```
 
-GitHub Actions also builds downloadable binaries for Linux, macOS, and Windows on each push to `main`. Open the latest successful run on the [Build workflow](https://github.com/hashmil/cxusage/actions/workflows/build.yml) and download the artifact for your platform.
+### Option 3: Download A Prebuilt Binary
+
+Use this if you do not want to install Go.
+
+1. Open the latest successful [Build workflow](https://github.com/hashmil/cxusage/actions/workflows/build.yml).
+2. Scroll to **Artifacts**.
+3. Download the artifact for your platform:
+   - `cxusage-darwin-arm64` for Apple Silicon Macs
+   - `cxusage-linux-amd64` for Intel/AMD Linux
+   - `cxusage-linux-arm64` for ARM Linux
+   - `cxusage-windows-amd64` for Windows
+4. Unzip the artifact.
+
+On macOS or Linux, move the binary into a directory on your `PATH`:
+
+```sh
+chmod +x cxusage
+mkdir -p ~/.local/bin
+mv cxusage ~/.local/bin/cxusage
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+cxusage
+```
+
+On Windows PowerShell, unzip the artifact and run:
+
+```powershell
+.\cxusage.exe
+```
+
+For regular Windows use, move `cxusage.exe` into a folder that is already on your `PATH`, or add its folder to your user `PATH`.
 
 ## Usage
 
