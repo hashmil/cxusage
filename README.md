@@ -1,8 +1,12 @@
 # cxusage
 
+[![Build](https://github.com/hashmil/cxusage/actions/workflows/build.yml/badge.svg)](https://github.com/hashmil/cxusage/actions/workflows/build.yml)
+
 Interactive local Codex usage explorer for the terminal.
 
 `cxusage` scans local Codex session logs and shows token usage, model/effort/mode breakdowns, terminal charts, and estimated cost. It is local-only: no network calls, no telemetry, and no cloud account access.
+
+This is an unofficial open source tool for enterprise Codex users who can run Codex locally but cannot use cloud Codex because it is not enabled, approved, or available in their environment. It gives teams a local way to understand usage from the logs that already exist on their machine.
 
 ## Features
 
@@ -16,14 +20,23 @@ Interactive local Codex usage explorer for the terminal.
 - Default timeframe: last 30 days
 - Estimated cost column using GPT-5.5 pricing constants
 
+## Who It Is For
+
+`cxusage` is useful when:
+
+- Your organization permits local Codex usage but has not enabled cloud Codex.
+- You need local visibility into sessions, token usage, model/effort/mode mix, and rough cost.
+- You cannot rely on a hosted dashboard because of enterprise policy, network limits, or rollout timing.
+- You want a private, offline-first usage viewer that reads only local `~/.codex` logs.
+
 ## Install
 
 Requires Go 1.25 or newer.
 
+Install directly from GitHub:
+
 ```sh
-git clone https://github.com/hashmil/cxusage.git
-cd cxusage
-go install ./cmd/cxusage
+go install github.com/hashmil/cxusage/cmd/cxusage@latest
 ```
 
 If `~/go/bin` is on your `PATH`, run:
@@ -38,12 +51,22 @@ If it is not on your `PATH`, run:
 ~/go/bin/cxusage
 ```
 
+Or clone and install from source:
+
+```sh
+git clone https://github.com/hashmil/cxusage.git
+cd cxusage
+go install ./cmd/cxusage
+```
+
 Or build a local binary:
 
 ```sh
 go build -o bin/cxusage ./cmd/cxusage
 ./bin/cxusage
 ```
+
+GitHub Actions also builds downloadable binaries for Linux, macOS, and Windows on each push to `main`. Open the latest successful run on the [Build workflow](https://github.com/hashmil/cxusage/actions/workflows/build.yml) and download the artifact for your platform.
 
 ## Usage
 
@@ -159,6 +182,16 @@ Run against fixture data:
 ```sh
 cxusage --codex-home ./testdata/codex-home --json
 ```
+
+## GitHub Actions
+
+The repository includes a `Build` workflow that:
+
+- installs the Go version declared in `go.mod`
+- runs `go test ./...`
+- runs `go vet ./...`
+- builds `./cmd/cxusage`
+- uploads platform binaries as workflow artifacts
 
 ## Privacy
 
