@@ -1,0 +1,7 @@
+bin/
+dist/
+.firecrawl/
+coverage.out
+.DS_Store
+*.log
+*.tmp
