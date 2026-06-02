@@ -8,6 +8,18 @@ Interactive local Codex usage explorer for the terminal.
 
 This is an unofficial open source tool for enterprise Codex users who can run Codex locally but cannot use cloud Codex because it is not enabled, approved, or available in their environment. It gives teams a local way to understand usage from the logs that already exist on their machine.
 
+## Screenshots
+
+| Overview | Trends |
+| --- | --- |
+| ![cxusage overview showing KPI cards, a dithered activity heatmap, and recent usage rows](docs/screenshots/overview.png) | ![cxusage trends view showing token usage over time with an average reference line](docs/screenshots/trends.png) |
+| KPI cards, yearly activity heatmap, and recent usage in one terminal view. | Token trend chart with usage, average line, peak, average, and estimated cost. |
+
+| Breakdowns | Sessions |
+| --- | --- |
+| ![cxusage breakdowns view showing model, effort, mode, and token type bars](docs/screenshots/breakdowns.png) | ![cxusage sessions view showing a borderless ledger table of local Codex sessions](docs/screenshots/sessions.png) |
+| Model, effort, mode, and token-type breakdowns with compact terminal bars. | Borderless ledger table for sessions, models, efforts, modes, tokens, and cost. |
+
 ## Features
 
 - Interactive Bubble Tea TUI by default
