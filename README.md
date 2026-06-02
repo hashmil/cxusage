@@ -67,11 +67,20 @@ If it is not on your `PATH`, run it directly:
 ~/go/bin/cxusage
 ```
 
-To make `cxusage` available from any terminal, add Go's bin directory to your shell profile:
+To make `cxusage` available from any terminal, add Go's bin directory to your shell profile.
+
+For zsh:
 
 ```sh
 echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
+```
+
+For bash:
+
+```sh
+echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
 Then run:
@@ -116,8 +125,21 @@ On macOS or Linux, move the binary into a directory on your `PATH`:
 chmod +x cxusage
 mkdir -p ~/.local/bin
 mv cxusage ~/.local/bin/cxusage
+```
+
+For zsh:
+
+```sh
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
+cxusage
+```
+
+For bash:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
 cxusage
 ```
 
