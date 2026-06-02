@@ -383,16 +383,24 @@ func TestOverviewReplacesTokenBarsWithCalendarHeatmap(t *testing.T) {
 		heatmapRendered = heatmapRendered[:index]
 	}
 	for _, sequence := range []string{
-		rgbSequence(109, 94, 249),
-		rgbSequence(68, 208, 123),
-		rgbSequence(242, 232, 94),
+		rgbSequence(49, 46, 129),
+		rgbSequence(79, 70, 229),
+		rgbSequence(124, 58, 237),
+		rgbSequence(196, 181, 253),
 	} {
 		if !strings.Contains(heatmapRendered, sequence) {
-			t.Fatalf("overview heatmap should use original multi-hue activity cells; missing %q in:\n%s", sequence, heatmapRendered)
+			t.Fatalf("overview heatmap should use a blue-violet activity gradient; missing %q in:\n%s", sequence, heatmapRendered)
 		}
 	}
-	if strings.Contains(heatmapRendered, rgbSequence(239, 131, 84)) {
-		t.Fatalf("overview heatmap should not use the earlier orange activity ramp:\n%s", heatmapRendered)
+	for _, sequence := range []string{
+		rgbSequence(0, 166, 214),
+		rgbSequence(68, 208, 123),
+		rgbSequence(242, 232, 94),
+		rgbSequence(239, 131, 84),
+	} {
+		if strings.Contains(heatmapRendered, sequence) {
+			t.Fatalf("overview heatmap should not use category-like multi-color cells; found %q in:\n%s", sequence, heatmapRendered)
+		}
 	}
 }
 
@@ -525,7 +533,7 @@ func TestFShortcutStillCyclesTimeframe(t *testing.T) {
 	}
 }
 
-func TestOverviewHeatmapAvoidsOrangeInLightTheme(t *testing.T) {
+func TestOverviewHeatmapUsesBlueVioletGradientInLightTheme(t *testing.T) {
 	model := NewLoadedModel(sampleCalendarReport(), Options{Theme: "light", NoAnimation: true})
 	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	updated := next.(Model)
@@ -534,16 +542,43 @@ func TestOverviewHeatmapAvoidsOrangeInLightTheme(t *testing.T) {
 	if index := strings.Index(heatmapRendered, "Recent usage"); index >= 0 {
 		heatmapRendered = heatmapRendered[:index]
 	}
-	if !strings.Contains(heatmapRendered, rgbSequence(101, 163, 13)) {
-		t.Fatalf("light overview heatmap should use a non-orange peak activity color:\n%s", heatmapRendered)
+	if !strings.Contains(heatmapRendered, rgbSequence(167, 139, 250)) {
+		t.Fatalf("light overview heatmap should use a blue-violet peak activity color:\n%s", heatmapRendered)
 	}
 	for _, sequence := range []string{
 		rgbSequence(234, 88, 12),
 		rgbSequence(202, 138, 4),
+		rgbSequence(22, 163, 74),
 	} {
 		if strings.Contains(heatmapRendered, sequence) {
-			t.Fatalf("light overview heatmap should not use orange activity colors; found %q in:\n%s", sequence, heatmapRendered)
+			t.Fatalf("light overview heatmap should not use orange/green activity colors; found %q in:\n%s", sequence, heatmapRendered)
 		}
+	}
+}
+
+func TestOverviewHeatmapColumnsTouch(t *testing.T) {
+	model := NewLoadedModel(emptyCalendarReport(), Options{Theme: "dark", NoAnimation: true, NoColor: true})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	updated := next.(Model)
+	rendered := stripANSI(updated.renderOverview())
+	row := firstHeatmapRow(rendered, "Mon")
+	cells := strings.TrimSpace(strings.TrimPrefix(row, "Mon"))
+	if strings.Contains(cells, " ") {
+		t.Fatalf("calendar heatmap columns should touch without spaces, got row %q", row)
+	}
+}
+
+func TestNoColorHeatmapUsesDitheredBlocks(t *testing.T) {
+	model := NewLoadedModel(sampleCalendarReport(), Options{Theme: "dark", NoAnimation: true, NoColor: true})
+	cells := []string{
+		model.heatmapCell(0, 4),
+		model.heatmapCell(1, 4),
+		model.heatmapCell(2, 4),
+		model.heatmapCell(3, 4),
+		model.heatmapCell(4, 4),
+	}
+	if strings.Join(cells, "") != "·░▒▓█" {
+		t.Fatalf("no-color heatmap should use dithered intensity blocks, got %q", strings.Join(cells, ""))
 	}
 }
 
@@ -663,4 +698,13 @@ func overviewHeatmapGrid(rendered string) string {
 		value = value[:index]
 	}
 	return value
+}
+
+func firstHeatmapRow(rendered, prefix string) string {
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return line
+		}
+	}
+	return ""
 }

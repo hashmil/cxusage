@@ -574,7 +574,7 @@ func (m Model) renderWeekHeatmap(values map[string]int64, maxValue int64) string
 	for day := 0; day < 7; day++ {
 		date := firstWeek.AddDate(0, 0, day)
 		header += padRight(labels[day], 4)
-		cells += padRight(m.heatmapCell(values[date.Format("2006-01-02")], maxValue), 4)
+		cells += m.heatmapCell(values[date.Format("2006-01-02")], maxValue)
 	}
 	return strings.Join([]string{
 		strings.TrimRight(header, " "),
@@ -592,7 +592,7 @@ func (m Model) renderYearHeatmap(values map[string]int64, maxValue int64) string
 	firstWeek := start.AddDate(0, 0, -mondayOffset(start))
 	lastWeek := end.AddDate(0, 0, 6-mondayOffset(end))
 	weeks := int(lastWeek.Sub(firstWeek).Hours()/24)/7 + 1
-	maxWeeks := max(1, (m.width-6)/2)
+	maxWeeks := max(1, m.width-7)
 	if weeks > maxWeeks {
 		firstWeek = firstWeek.AddDate(0, 0, (weeks-maxWeeks)*7)
 		weeks = maxWeeks
@@ -605,7 +605,7 @@ func (m Model) renderYearHeatmap(values map[string]int64, maxValue int64) string
 		for week := 0; week < weeks; week++ {
 			date := firstWeek.AddDate(0, 0, week*7+day)
 			value := values[date.Format("2006-01-02")]
-			line += m.heatmapCell(value, maxValue) + " "
+			line += m.heatmapCell(value, maxValue)
 		}
 		lines = append(lines, line)
 	}
@@ -626,7 +626,7 @@ func overviewInclusiveEnd(end time.Time) time.Time {
 
 func (m Model) monthHeader(start time.Time, weeks int) string {
 	labelWidth := 4
-	cellWidth := 2
+	cellWidth := 1
 	width := labelWidth + weeks*cellWidth + 3
 	chars := []rune(strings.Repeat(" ", width))
 	lastMonth := time.Month(0)
@@ -665,7 +665,7 @@ func (m Model) renderGroupedHeatmap(rows []usage.ReportRow, groupBy string) stri
 	cellLine := "    "
 	for _, row := range rows {
 		labelLine += padRight(truncatePlain(activityBucketLabel(row.Label, groupBy), 3), 4)
-		cellLine += padRight(m.heatmapCell(row.Usage.TotalTokens, maxValue), 4)
+		cellLine += m.heatmapCell(row.Usage.TotalTokens, maxValue)
 	}
 	return strings.Join([]string{
 		strings.TrimRight(labelLine, " "),
@@ -722,9 +722,9 @@ func (m Model) heatmapCell(value, maxValue int64) string {
 	if m.options.NoColor {
 		return []string{"·", "░", "▒", "▓", "█"}[level]
 	}
-	colors := []string{"#303243", "#6D5EF9", "#00A6D6", "#44D07B", "#F2E85E"}
+	colors := []string{"#303243", "#312E81", "#4F46E5", "#7C3AED", "#C4B5FD"}
 	if m.theme == ThemeLight {
-		colors = []string{"#E5E7EB", "#6D5EF9", "#0284C7", "#16A34A", "#65A30D"}
+		colors = []string{"#E5E7EB", "#312E81", "#4F46E5", "#7C3AED", "#A78BFA"}
 	}
 	glyph := "█"
 	if level == 0 {
