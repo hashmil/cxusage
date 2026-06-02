@@ -614,7 +614,7 @@ func (m Model) heatmapCell(value, maxValue int64) string {
 	}
 	colors := []string{"#303243", "#6D5EF9", "#00A6D6", "#44D07B", "#F2E85E"}
 	if m.theme == ThemeLight {
-		colors = []string{"#E5E7EB", "#6D5EF9", "#0284C7", "#16A34A", "#CA8A04"}
+		colors = []string{"#E5E7EB", "#6D5EF9", "#0284C7", "#16A34A", "#65A30D"}
 	}
 	glyph := "█"
 	if level == 0 {

@@ -329,6 +329,28 @@ func TestOverviewReplacesTokenBarsWithCalendarHeatmap(t *testing.T) {
 	}
 }
 
+func TestOverviewHeatmapAvoidsOrangeInLightTheme(t *testing.T) {
+	model := NewLoadedModel(sampleCalendarReport(), Options{Theme: "light", NoAnimation: true})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	updated := next.(Model)
+	rendered := updated.renderOverview()
+	heatmapRendered := rendered[strings.Index(rendered, "Usage activity"):]
+	if index := strings.Index(heatmapRendered, "Recent usage"); index >= 0 {
+		heatmapRendered = heatmapRendered[:index]
+	}
+	if !strings.Contains(heatmapRendered, rgbSequence(101, 163, 13)) {
+		t.Fatalf("light overview heatmap should use a non-orange peak activity color:\n%s", heatmapRendered)
+	}
+	for _, sequence := range []string{
+		rgbSequence(234, 88, 12),
+		rgbSequence(202, 138, 4),
+	} {
+		if strings.Contains(heatmapRendered, sequence) {
+			t.Fatalf("light overview heatmap should not use orange activity colors; found %q in:\n%s", sequence, heatmapRendered)
+		}
+	}
+}
+
 func TestOverviewUsesGroupedHeatmapForMonthRows(t *testing.T) {
 	model := NewLoadedModel(sampleMonthReport(), Options{Theme: "dark", NoAnimation: true})
 	next, _ := model.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
