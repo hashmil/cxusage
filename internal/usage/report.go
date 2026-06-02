@@ -24,6 +24,58 @@ const (
 
 var sessionIDPattern = regexp.MustCompile(`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`)
 
+type ModelPricing struct {
+	InputUSDPer1M       float64
+	CachedInputUSDPer1M float64
+	OutputUSDPer1M      float64
+}
+
+var defaultModelPricing = ModelPricing{
+	InputUSDPer1M:       GPT55InputUSDPer1M,
+	CachedInputUSDPer1M: GPT55CachedInputUSDPer1M,
+	OutputUSDPer1M:      GPT55OutputUSDPer1M,
+}
+
+var modelPricing = map[string]ModelPricing{
+	"gpt-5.5":             {InputUSDPer1M: 5.00, CachedInputUSDPer1M: 0.50, OutputUSDPer1M: 30.00},
+	"gpt-5.5-pro":         {InputUSDPer1M: 30.00, CachedInputUSDPer1M: 30.00, OutputUSDPer1M: 180.00},
+	"gpt-5.4":             {InputUSDPer1M: 2.50, CachedInputUSDPer1M: 0.25, OutputUSDPer1M: 15.00},
+	"gpt-5.4-mini":        {InputUSDPer1M: 0.75, CachedInputUSDPer1M: 0.075, OutputUSDPer1M: 4.50},
+	"gpt-5.4-nano":        {InputUSDPer1M: 0.20, CachedInputUSDPer1M: 0.02, OutputUSDPer1M: 1.25},
+	"gpt-5.4-pro":         {InputUSDPer1M: 30.00, CachedInputUSDPer1M: 30.00, OutputUSDPer1M: 180.00},
+	"gpt-5.2":             {InputUSDPer1M: 1.75, CachedInputUSDPer1M: 0.175, OutputUSDPer1M: 14.00},
+	"gpt-5.2-pro":         {InputUSDPer1M: 21.00, CachedInputUSDPer1M: 21.00, OutputUSDPer1M: 168.00},
+	"gpt-5.1":             {InputUSDPer1M: 1.25, CachedInputUSDPer1M: 0.125, OutputUSDPer1M: 10.00},
+	"gpt-5":               {InputUSDPer1M: 1.25, CachedInputUSDPer1M: 0.125, OutputUSDPer1M: 10.00},
+	"gpt-5-mini":          {InputUSDPer1M: 0.25, CachedInputUSDPer1M: 0.025, OutputUSDPer1M: 2.00},
+	"gpt-5-nano":          {InputUSDPer1M: 0.05, CachedInputUSDPer1M: 0.005, OutputUSDPer1M: 0.40},
+	"gpt-5-pro":           {InputUSDPer1M: 15.00, CachedInputUSDPer1M: 15.00, OutputUSDPer1M: 120.00},
+	"gpt-5.3-codex":       {InputUSDPer1M: 1.75, CachedInputUSDPer1M: 0.175, OutputUSDPer1M: 14.00},
+	"gpt-5.2-codex":       {InputUSDPer1M: 1.75, CachedInputUSDPer1M: 0.175, OutputUSDPer1M: 14.00},
+	"gpt-5.1-codex-max":   {InputUSDPer1M: 1.25, CachedInputUSDPer1M: 0.125, OutputUSDPer1M: 10.00},
+	"gpt-5.1-codex":       {InputUSDPer1M: 1.25, CachedInputUSDPer1M: 0.125, OutputUSDPer1M: 10.00},
+	"gpt-5-codex":         {InputUSDPer1M: 1.25, CachedInputUSDPer1M: 0.125, OutputUSDPer1M: 10.00},
+	"gpt-5.1-codex-mini":  {InputUSDPer1M: 0.25, CachedInputUSDPer1M: 0.025, OutputUSDPer1M: 2.00},
+	"codex-mini-latest":   {InputUSDPer1M: 1.50, CachedInputUSDPer1M: 0.375, OutputUSDPer1M: 6.00},
+	"chat-latest":         {InputUSDPer1M: 5.00, CachedInputUSDPer1M: 0.50, OutputUSDPer1M: 30.00},
+	"gpt-5.3-chat-latest": {InputUSDPer1M: 1.75, CachedInputUSDPer1M: 0.175, OutputUSDPer1M: 14.00},
+	"gpt-5.2-chat-latest": {InputUSDPer1M: 1.75, CachedInputUSDPer1M: 0.175, OutputUSDPer1M: 14.00},
+	"gpt-5.1-chat-latest": {InputUSDPer1M: 1.25, CachedInputUSDPer1M: 0.125, OutputUSDPer1M: 10.00},
+	"gpt-5-chat-latest":   {InputUSDPer1M: 1.25, CachedInputUSDPer1M: 0.125, OutputUSDPer1M: 10.00},
+	"chatgpt-4o-latest":   {InputUSDPer1M: 5.00, CachedInputUSDPer1M: 5.00, OutputUSDPer1M: 15.00},
+	"gpt-4.1":             {InputUSDPer1M: 2.00, CachedInputUSDPer1M: 0.50, OutputUSDPer1M: 8.00},
+	"gpt-4.1-mini":        {InputUSDPer1M: 0.40, CachedInputUSDPer1M: 0.10, OutputUSDPer1M: 1.60},
+	"gpt-4.1-nano":        {InputUSDPer1M: 0.10, CachedInputUSDPer1M: 0.025, OutputUSDPer1M: 0.40},
+	"gpt-4o":              {InputUSDPer1M: 2.50, CachedInputUSDPer1M: 1.25, OutputUSDPer1M: 10.00},
+	"gpt-4o-2024-05-13":   {InputUSDPer1M: 5.00, CachedInputUSDPer1M: 5.00, OutputUSDPer1M: 15.00},
+	"gpt-4o-mini":         {InputUSDPer1M: 0.15, CachedInputUSDPer1M: 0.075, OutputUSDPer1M: 0.60},
+	"o1":                  {InputUSDPer1M: 15.00, CachedInputUSDPer1M: 7.50, OutputUSDPer1M: 60.00},
+	"o1-pro":              {InputUSDPer1M: 150.00, CachedInputUSDPer1M: 150.00, OutputUSDPer1M: 600.00},
+	"o3-pro":              {InputUSDPer1M: 20.00, CachedInputUSDPer1M: 20.00, OutputUSDPer1M: 80.00},
+	"o3":                  {InputUSDPer1M: 2.00, CachedInputUSDPer1M: 0.50, OutputUSDPer1M: 8.00},
+	"o4-mini":             {InputUSDPer1M: 1.10, CachedInputUSDPer1M: 0.275, OutputUSDPer1M: 4.40},
+}
+
 type Usage struct {
 	InputTokens           int64 `json:"input_tokens"`
 	CachedInputTokens     int64 `json:"cached_input_tokens"`
@@ -64,9 +116,36 @@ func nonNegative(value int64) int64 {
 }
 
 func EstimateCostUSD(usage Usage) float64 {
-	return (float64(usage.UncachedInputTokens())*GPT55InputUSDPer1M +
-		float64(usage.CachedInputTokens)*GPT55CachedInputUSDPer1M +
-		float64(usage.OutputTokens)*GPT55OutputUSDPer1M) / 1_000_000
+	return estimateCostUSD(usage, defaultModelPricing)
+}
+
+func EstimateCostUSDForModel(model string, usage Usage) float64 {
+	return estimateCostUSD(usage, pricingForModel(model))
+}
+
+func estimateCostUSD(usage Usage, pricing ModelPricing) float64 {
+	return (float64(usage.UncachedInputTokens())*pricing.InputUSDPer1M +
+		float64(usage.CachedInputTokens)*pricing.CachedInputUSDPer1M +
+		float64(usage.OutputTokens)*pricing.OutputUSDPer1M) / 1_000_000
+}
+
+func pricingForModel(model string) ModelPricing {
+	normalized := normalizeModelName(model)
+	if pricing, ok := modelPricing[normalized]; ok {
+		return pricing
+	}
+	return defaultModelPricing
+}
+
+func normalizeModelName(model string) string {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" {
+		return UnknownMetadata
+	}
+	if fields := strings.Fields(model); len(fields) > 0 {
+		model = fields[0]
+	}
+	return model
 }
 
 type TurnMetadata struct {
@@ -239,6 +318,7 @@ func BuildReport(roots []string, start, end time.Time, groupBy, title string) (R
 	}
 
 	grouped := map[string]Usage{}
+	groupedCosts := map[string]float64{}
 	groupedSessions := map[string]map[string]struct{}{}
 	groupedModels := map[string]map[string]struct{}{}
 	groupedEfforts := map[string]map[string]struct{}{}
@@ -278,6 +358,7 @@ func BuildReport(roots []string, start, end time.Time, groupBy, title string) (R
 				}
 			}
 			grouped[label] = grouped[label].Add(delta)
+			groupedCosts[label] += EstimateCostUSDForModel(event.Metadata.Model, delta)
 			addToSet(groupedSessions, label, event.SessionID)
 			addToSet(groupedModels, label, event.Metadata.Model)
 			addToSet(groupedEfforts, label, event.Metadata.Effort)
@@ -304,7 +385,7 @@ func BuildReport(roots []string, start, end time.Time, groupBy, title string) (R
 			Models:   sortedSet(groupedModels[label]),
 			Efforts:  sortedSet(groupedEfforts[label]),
 			Modes:    sortedSet(groupedModes[label]),
-			CostUSD:  EstimateCostUSD(usage),
+			CostUSD:  groupedCosts[label],
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool {
@@ -315,8 +396,10 @@ func BuildReport(roots []string, start, end time.Time, groupBy, title string) (R
 	})
 
 	totals := Usage{}
+	totalCost := 0.0
 	for _, row := range rows {
 		totals = totals.Add(row.Usage)
+		totalCost += row.CostUSD
 	}
 	if title == "" {
 		title = "Codex Usage Report - " + strings.Title(groupBy)
@@ -328,7 +411,7 @@ func BuildReport(roots []string, start, end time.Time, groupBy, title string) (R
 		GroupBy:         groupBy,
 		Rows:            rows,
 		Totals:          totals,
-		TotalCostUSD:    EstimateCostUSD(totals),
+		TotalCostUSD:    totalCost,
 		SessionsCounted: len(sessionsWithUsage),
 		FilesCounted:    filesCounted,
 		EventsCounted:   eventsCounted,

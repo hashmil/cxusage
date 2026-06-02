@@ -18,7 +18,7 @@ This is an unofficial open source tool for enterprise Codex users who can run Co
 - Single terminal chart view with compact axis labels
 - JSON output for scripts
 - Default timeframe: last 30 days
-- Estimated cost column using GPT-5.5 pricing constants
+- Estimated cost column using model-specific OpenAI pricing constants where the local logs expose a known model
 
 ## Who It Is For
 
@@ -117,6 +117,38 @@ On Windows PowerShell, unzip the artifact and run:
 
 For regular Windows use, move `cxusage.exe` into a folder that is already on your `PATH`, or add its folder to your user `PATH`.
 
+### Updating An Existing Install
+
+If you installed with `go install`, run the same command again:
+
+```sh
+go install github.com/hashmil/cxusage/cmd/cxusage@latest
+```
+
+If your shell still shows an older version, confirm which binary is being used:
+
+```sh
+which cxusage
+```
+
+Make sure the shown directory is the same one Go installs to:
+
+```sh
+go env GOPATH
+```
+
+Go usually installs to `$(go env GOPATH)/bin`, for example `~/go/bin/cxusage`.
+
+If you cloned the repo, pull and reinstall:
+
+```sh
+cd cxusage
+git pull
+go install ./cmd/cxusage
+```
+
+If you downloaded a prebuilt binary from GitHub Actions, download the latest successful artifact and replace the old `cxusage` binary on your `PATH`.
+
 ## Usage
 
 Launch the interactive TUI:
@@ -208,15 +240,25 @@ Model, reasoning effort, and collaboration mode are shown when they are present 
 
 ## Cost Estimate
 
-The cost number is only an estimate. It uses fixed GPT-5.5 constants:
+The cost number is only an estimate. `cxusage` uses the model name in each local `turn_context` record when it is available, then applies standard short-context OpenAI API token rates. Unknown model names fall back to GPT-5.5 rates so older behavior stays conservative.
 
-```text
-input:        $5.00 / 1M uncached input tokens
-cached input: $0.50 / 1M cached input tokens
-output:       $30.00 / 1M output tokens
-```
+| Model family | Input / 1M | Cached input / 1M | Output / 1M |
+| --- | ---: | ---: | ---: |
+| `gpt-5.5` | $5.00 | $0.50 | $30.00 |
+| `gpt-5.4` | $2.50 | $0.25 | $15.00 |
+| `gpt-5.4-mini` | $0.75 | $0.075 | $4.50 |
+| `gpt-5.4-nano` | $0.20 | $0.02 | $1.25 |
+| `gpt-5.2`, `gpt-5.2-codex` | $1.75 | $0.175 | $14.00 |
+| `gpt-5.1`, `gpt-5`, `gpt-5-codex` | $1.25 | $0.125 | $10.00 |
+| `gpt-5-mini`, `gpt-5.1-codex-mini` | $0.25 | $0.025 | $2.00 |
+| `gpt-5-nano` | $0.05 | $0.005 | $0.40 |
+| `codex-mini-latest` | $1.50 | $0.375 | $6.00 |
+| `gpt-4.1` | $2.00 | $0.50 | $8.00 |
+| `gpt-4.1-mini` | $0.40 | $0.10 | $1.60 |
+| `gpt-4o` | $2.50 | $1.25 | $10.00 |
+| `gpt-4o-mini` | $0.15 | $0.075 | $0.60 |
 
-Reasoning output tokens are shown separately, but cost is estimated from the output token total available in the logs.
+Reasoning output tokens are shown separately, but cost is estimated from the output token total available in the logs. Service tier, long-context, regional processing, batch, flex, and priority uplifts are intentionally omitted because local historical logs do not reliably expose them. See [OpenAI API pricing](https://openai.com/api/pricing/) and the [detailed pricing docs](https://developers.openai.com/api/docs/pricing) for current official rates.
 
 ## Development
 

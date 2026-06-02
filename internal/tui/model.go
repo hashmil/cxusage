@@ -719,18 +719,21 @@ func (m Model) heatmapLegend() string {
 
 func (m Model) heatmapCell(value, maxValue int64) string {
 	level := heatmapLevel(value, maxValue)
+	glyph := []string{"·", "░", "▒", "▓", "█"}[level]
 	if m.options.NoColor {
-		return []string{"·", "░", "▒", "▓", "█"}[level]
+		return glyph
 	}
-	colors := []string{"#303243", "#312E81", "#4F46E5", "#7C3AED", "#C4B5FD"}
+	empty := "#303243"
+	active := "#8B5CF6"
 	if m.theme == ThemeLight {
-		colors = []string{"#E5E7EB", "#312E81", "#4F46E5", "#7C3AED", "#A78BFA"}
+		empty = "#E5E7EB"
+		active = "#7C3AED"
 	}
-	glyph := "█"
+	cellColor := active
 	if level == 0 {
-		glyph = "·"
+		cellColor = empty
 	}
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(colors[level])).Render(glyph)
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(cellColor)).Render(glyph)
 }
 
 func heatmapLevel(value, maxValue int64) int {
@@ -776,6 +779,7 @@ func (m Model) renderTrends() string {
 	return strings.Join([]string{
 		m.styles().Section.Render("Token trend"),
 		chart,
+		m.trendsLegend(),
 		rangeLabel,
 		"",
 		stats,
@@ -1231,6 +1235,11 @@ func (m Model) lineChart(values []float64, width, height int) string {
 	if len(values) == 0 {
 		return ""
 	}
+	average := avgFloat(values)
+	averageLine := make([]float64, len(values))
+	for i := range averageLine {
+		averageLine[i] = average
+	}
 	options := []asciigraph.Option{
 		asciigraph.Width(max(12, width-14)),
 		asciigraph.Height(max(4, height)),
@@ -1241,9 +1250,34 @@ func (m Model) lineChart(values []float64, width, height int) string {
 		}),
 	}
 	if !m.options.NoColor {
-		options = append(options, asciigraph.SeriesColors(asciigraph.Cyan), asciigraph.AxisColor(asciigraph.DarkGray), asciigraph.LabelColor(asciigraph.LightSlateGray))
+		options = append(options, asciigraph.SeriesColors(asciigraph.Cyan, asciigraph.Purple), asciigraph.AxisColor(asciigraph.DarkGray), asciigraph.LabelColor(asciigraph.LightSlateGray))
 	}
-	return m.withChartBottomAxis(asciigraph.Plot(values, options...))
+	return m.withChartBottomAxis(asciigraph.PlotMany([][]float64{values, averageLine}, options...))
+}
+
+func avgFloat(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	total := 0.0
+	for _, value := range values {
+		total += value
+	}
+	return total / float64(len(values))
+}
+
+func (m Model) trendsLegend() string {
+	s := m.styles()
+	if m.options.NoColor {
+		return "usage · average"
+	}
+	usage := lipgloss.NewStyle().Foreground(lipgloss.Color("#8BD5CA")).Render("usage")
+	average := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5CF6")).Render("average")
+	if m.theme == ThemeLight {
+		usage = lipgloss.NewStyle().Foreground(lipgloss.Color("#0891B2")).Render("usage")
+		average = lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED")).Render("average")
+	}
+	return usage + s.Muted.Render(" · ") + average
 }
 
 func (m Model) statChip(label, value string, valueStyle lipgloss.Style) string {

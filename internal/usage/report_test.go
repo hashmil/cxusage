@@ -184,10 +184,51 @@ func TestMalformedJSONLIsIgnored(t *testing.T) {
 	}
 }
 
-func TestEstimateCostUsesGPT55Rates(t *testing.T) {
+func TestEstimateCostUsesGPT55RatesByDefault(t *testing.T) {
 	usage := Usage{InputTokens: 2_000_000, CachedInputTokens: 1_500_000, OutputTokens: 100_000, ReasoningOutputTokens: 50_000, TotalTokens: 2_100_000}
 	if got := EstimateCostUSD(usage); got != 6.25 {
 		t.Fatalf("cost = %.2f, want 6.25", got)
+	}
+}
+
+func TestEstimateCostUsesModelSpecificRates(t *testing.T) {
+	usage := Usage{InputTokens: 2_000_000, CachedInputTokens: 1_500_000, OutputTokens: 100_000, ReasoningOutputTokens: 50_000, TotalTokens: 2_100_000}
+	if got := EstimateCostUSDForModel("gpt-5.4", usage); got != 3.125 {
+		t.Fatalf("gpt-5.4 cost = %.4f, want 3.125", got)
+	}
+	if got := EstimateCostUSDForModel("codex-mini-latest", usage); got != 1.9125 {
+		t.Fatalf("codex-mini-latest cost = %.4f, want 1.9125", got)
+	}
+}
+
+func TestBuildReportAggregatesModelSpecificCosts(t *testing.T) {
+	dir := t.TempDir()
+	writeRollout(t, dir, "rollout-2026-06-01T00-00-00-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl",
+		turnContext(t, "2026-06-01T00:01:00Z", "gpt-5.5", "xhigh", "default"),
+		tokenEvent(t, "2026-06-01T00:02:00Z",
+			Usage{InputTokens: 1_000_000, OutputTokens: 1_000_000, TotalTokens: 2_000_000},
+			Usage{InputTokens: 1_000_000, OutputTokens: 1_000_000, TotalTokens: 2_000_000},
+		),
+		turnContext(t, "2026-06-01T00:03:00Z", "gpt-5-mini", "medium", "default"),
+		tokenEvent(t, "2026-06-01T00:04:00Z",
+			Usage{InputTokens: 2_000_000, OutputTokens: 2_000_000, TotalTokens: 4_000_000},
+			Usage{InputTokens: 1_000_000, OutputTokens: 1_000_000, TotalTokens: 2_000_000},
+		),
+	)
+
+	report, err := BuildReport([]string{dir}, mustTime("2026-06-01T00:00:00Z"), mustTime("2026-06-02T00:00:00Z"), "day", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(report.Rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(report.Rows))
+	}
+	if got := report.Rows[0].CostUSD; got != 37.25 {
+		t.Fatalf("row cost = %.2f, want 37.25", got)
+	}
+	if report.TotalCostUSD != report.Rows[0].CostUSD {
+		t.Fatalf("total cost = %.2f, row cost = %.2f", report.TotalCostUSD, report.Rows[0].CostUSD)
 	}
 }
 

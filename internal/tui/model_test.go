@@ -382,24 +382,21 @@ func TestOverviewReplacesTokenBarsWithCalendarHeatmap(t *testing.T) {
 	if index := strings.Index(heatmapRendered, "Recent usage"); index >= 0 {
 		heatmapRendered = heatmapRendered[:index]
 	}
-	for _, sequence := range []string{
-		rgbSequence(49, 46, 129),
-		rgbSequence(79, 70, 229),
-		rgbSequence(124, 58, 237),
-		rgbSequence(196, 181, 253),
-	} {
-		if !strings.Contains(heatmapRendered, sequence) {
-			t.Fatalf("overview heatmap should use a blue-violet activity gradient; missing %q in:\n%s", sequence, heatmapRendered)
-		}
+	if !strings.Contains(heatmapRendered, rgbSequence(139, 92, 246)) {
+		t.Fatalf("overview heatmap should use one purple activity color, got:\n%s", heatmapRendered)
 	}
 	for _, sequence := range []string{
 		rgbSequence(0, 166, 214),
 		rgbSequence(68, 208, 123),
 		rgbSequence(242, 232, 94),
 		rgbSequence(239, 131, 84),
+		rgbSequence(49, 46, 129),
+		rgbSequence(79, 70, 229),
+		rgbSequence(124, 58, 237),
+		rgbSequence(196, 181, 253),
 	} {
 		if strings.Contains(heatmapRendered, sequence) {
-			t.Fatalf("overview heatmap should not use category-like multi-color cells; found %q in:\n%s", sequence, heatmapRendered)
+			t.Fatalf("overview heatmap should not use multi-color gradient cells; found %q in:\n%s", sequence, heatmapRendered)
 		}
 	}
 }
@@ -533,7 +530,7 @@ func TestFShortcutStillCyclesTimeframe(t *testing.T) {
 	}
 }
 
-func TestOverviewHeatmapUsesBlueVioletGradientInLightTheme(t *testing.T) {
+func TestOverviewHeatmapUsesSinglePurpleColorInLightTheme(t *testing.T) {
 	model := NewLoadedModel(sampleCalendarReport(), Options{Theme: "light", NoAnimation: true})
 	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	updated := next.(Model)
@@ -542,16 +539,17 @@ func TestOverviewHeatmapUsesBlueVioletGradientInLightTheme(t *testing.T) {
 	if index := strings.Index(heatmapRendered, "Recent usage"); index >= 0 {
 		heatmapRendered = heatmapRendered[:index]
 	}
-	if !strings.Contains(heatmapRendered, rgbSequence(167, 139, 250)) {
-		t.Fatalf("light overview heatmap should use a blue-violet peak activity color:\n%s", heatmapRendered)
+	if !strings.Contains(heatmapRendered, rgbSequence(124, 58, 237)) {
+		t.Fatalf("light overview heatmap should use one purple activity color:\n%s", heatmapRendered)
 	}
 	for _, sequence := range []string{
 		rgbSequence(234, 88, 12),
 		rgbSequence(202, 138, 4),
 		rgbSequence(22, 163, 74),
+		rgbSequence(167, 139, 250),
 	} {
 		if strings.Contains(heatmapRendered, sequence) {
-			t.Fatalf("light overview heatmap should not use orange/green activity colors; found %q in:\n%s", sequence, heatmapRendered)
+			t.Fatalf("light overview heatmap should not use gradient/orange/green activity colors; found %q in:\n%s", sequence, heatmapRendered)
 		}
 	}
 }
@@ -579,6 +577,27 @@ func TestNoColorHeatmapUsesDitheredBlocks(t *testing.T) {
 	}
 	if strings.Join(cells, "") != "·░▒▓█" {
 		t.Fatalf("no-color heatmap should use dithered intensity blocks, got %q", strings.Join(cells, ""))
+	}
+}
+
+func TestColorHeatmapUsesDitheredBlocksAndOneActiveColor(t *testing.T) {
+	model := NewLoadedModel(sampleCalendarReport(), Options{Theme: "dark", NoAnimation: true})
+	cells := []string{
+		model.heatmapCell(0, 4),
+		model.heatmapCell(1, 4),
+		model.heatmapCell(2, 4),
+		model.heatmapCell(3, 4),
+		model.heatmapCell(4, 4),
+	}
+	joined := strings.Join(cells, "")
+	if stripANSI(joined) != "·░▒▓█" {
+		t.Fatalf("color heatmap should use dithered intensity blocks, got %q", stripANSI(joined))
+	}
+	activeColor := rgbSequence(139, 92, 246)
+	for _, cell := range cells[1:] {
+		if !strings.Contains(cell, activeColor) {
+			t.Fatalf("active heatmap cells should share one color %q, got %q", activeColor, cell)
+		}
 	}
 }
 
@@ -632,6 +651,25 @@ func TestTrendsUsesSingleLineChart(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "K ┤") {
 		t.Fatalf("trends should abbreviate chart axis labels:\n%s", rendered)
+	}
+}
+
+func TestTrendsDrawsAverageReferenceLine(t *testing.T) {
+	model := NewLoadedModel(sampleReportWithManyRows(), Options{Theme: "dark", NoAnimation: true})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	updated := next.(Model)
+	next, _ = updated.Update(tea.KeyPressMsg(tea.Key{Text: "2", Code: '2'}))
+	updated = next.(Model)
+	rendered := updated.View().Content
+	plain := stripANSI(rendered)
+	if !strings.Contains(plain, "usage") || !strings.Contains(plain, "average") {
+		t.Fatalf("trends should label usage and average series:\n%s", plain)
+	}
+	if !strings.Contains(rendered, "\x1b[96m") {
+		t.Fatalf("trends should draw usage in cyan:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "\x1b[35m") {
+		t.Fatalf("trends should draw average in purple:\n%s", rendered)
 	}
 }
 
