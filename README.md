@@ -1,6 +1,7 @@
 # cxusage
 
 [![Build](https://github.com/hashmil/cxusage/actions/workflows/build.yml/badge.svg)](https://github.com/hashmil/cxusage/actions/workflows/build.yml)
+[![Release](https://github.com/hashmil/cxusage/actions/workflows/release.yml/badge.svg)](https://github.com/hashmil/cxusage/actions/workflows/release.yml)
 
 Interactive local Codex usage explorer for the terminal.
 
@@ -110,22 +111,22 @@ go build -o bin/cxusage ./cmd/cxusage
 
 Use this if you do not want to install Go.
 
-1. Open the latest successful [Build workflow](https://github.com/hashmil/cxusage/actions/workflows/build.yml).
-2. Scroll to **Artifacts**.
-3. Download the artifact for your platform:
-   - `cxusage-darwin-arm64` for Apple Silicon Macs
-   - `cxusage-linux-amd64` for Intel/AMD Linux
-   - `cxusage-linux-arm64` for ARM Linux
-   - `cxusage-windows-amd64` for Windows
-4. Unzip the artifact.
+Download the latest release asset for your platform:
+
+- [Apple Silicon Mac](https://github.com/hashmil/cxusage/releases/latest/download/cxusage-darwin-arm64)
+- [Linux Intel/AMD](https://github.com/hashmil/cxusage/releases/latest/download/cxusage-linux-amd64)
+- [Linux ARM](https://github.com/hashmil/cxusage/releases/latest/download/cxusage-linux-arm64)
+- [Windows Intel/AMD](https://github.com/hashmil/cxusage/releases/latest/download/cxusage-windows-amd64.exe)
 
 On macOS or Linux, move the binary into a directory on your `PATH`:
 
 ```sh
-chmod +x cxusage
+chmod +x ./cxusage-darwin-arm64
 mkdir -p ~/.local/bin
-mv cxusage ~/.local/bin/cxusage
+mv ./cxusage-darwin-arm64 ~/.local/bin/cxusage
 ```
+
+Replace `cxusage-darwin-arm64` with the Linux filename if you downloaded a Linux binary.
 
 For zsh:
 
@@ -143,13 +144,13 @@ source ~/.bashrc
 cxusage
 ```
 
-On Windows PowerShell, unzip the artifact and run:
+On Windows PowerShell, run:
 
 ```powershell
-.\cxusage.exe
+.\cxusage-windows-amd64.exe
 ```
 
-For regular Windows use, move `cxusage.exe` into a folder that is already on your `PATH`, or add its folder to your user `PATH`.
+For regular Windows use, rename it to `cxusage.exe`, then move it into a folder that is already on your `PATH`, or add its folder to your user `PATH`.
 
 ### Updating An Existing Install
 
@@ -181,7 +182,7 @@ git pull
 go install ./cmd/cxusage
 ```
 
-If you downloaded a prebuilt binary from GitHub Actions, download the latest successful artifact and replace the old `cxusage` binary on your `PATH`.
+If you downloaded a prebuilt binary, download the latest release asset for your platform and replace the old `cxusage` binary on your `PATH`.
 
 ## Usage
 
@@ -310,13 +311,21 @@ cxusage --codex-home ./testdata/codex-home --json
 
 ## GitHub Actions
 
-The repository includes a `Build` workflow that:
+The repository includes two workflows:
+
+`Build` runs on pushes to `main`, pull requests, and manual dispatches. It:
 
 - installs the Go version declared in `go.mod`
 - runs `go test ./...`
 - runs `go vet ./...`
 - builds `./cmd/cxusage`
-- uploads platform binaries as workflow artifacts
+- uploads per-run platform binaries as workflow artifacts
+
+`Release` runs when a `v*` tag is pushed. It:
+
+- runs the same tests and vet checks
+- creates or updates the GitHub release for the tag
+- uploads stable release assets used by the download links above
 
 ## Privacy
 

@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build -v ./cmd/cxusage
+
+  create-release:
+    name: Create release
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$tag" --notes "Release $tag"
+          else
+            gh release create "$tag" --title "$tag" --notes "Release $tag" --verify-tag
+          fi
+
+  binaries:
+    name: Binary (${{ matrix.goos }}-${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            asset: cxusage-linux-amd64
+          - goos: linux
+            goarch: arm64
+            asset: cxusage-linux-arm64
+          - goos: darwin
+            goarch: arm64
+            asset: cxusage-darwin-arm64
+          - goos: windows
+            goarch: amd64
+            asset: cxusage-windows-amd64.exe
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -trimpath -ldflags="-s -w" -o dist/${{ matrix.asset }} ./cmd/cxusage
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "dist/${{ matrix.asset }}" --clobber
