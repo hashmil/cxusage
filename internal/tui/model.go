@@ -551,10 +551,11 @@ func (m Model) renderSingleDayHeatmap(values map[string]int64, maxValue int64) s
 		day = dayOnly(time.Now())
 	}
 	value := values[day.Format("2006-01-02")]
+	scale := newHeatmapScale([]int64{value})
 	valueLabel := m.styles().Muted.Render(formatInt(value) + " tokens")
 	return strings.Join([]string{
 		"    " + day.Format("Mon Jan 02"),
-		"    " + m.heatmapCell(value, maxValue) + " " + valueLabel,
+		"    " + m.heatmapCellForLevel(scale.level(value)) + " " + valueLabel,
 		m.heatmapLegend(),
 	}, "\n")
 }
@@ -569,12 +570,20 @@ func (m Model) renderWeekHeatmap(values map[string]int64, maxValue int64) string
 	}
 	firstWeek := start.AddDate(0, 0, -mondayOffset(start))
 	labels := []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
-	header := "    "
-	cells := "    "
+	dates := make([]time.Time, 0, 7)
+	scaleValues := make([]int64, 0, 7)
 	for day := 0; day < 7; day++ {
 		date := firstWeek.AddDate(0, 0, day)
+		dates = append(dates, date)
+		scaleValues = append(scaleValues, values[date.Format("2006-01-02")])
+	}
+	scale := newHeatmapScale(scaleValues)
+	header := "    "
+	cells := "    "
+	for day, date := range dates {
 		header += padRight(labels[day], 4)
-		cells += m.heatmapCell(values[date.Format("2006-01-02")], maxValue)
+		value := values[date.Format("2006-01-02")]
+		cells += m.heatmapCellForLevel(scale.level(value))
 	}
 	return strings.Join([]string{
 		strings.TrimRight(header, " "),
@@ -597,6 +606,14 @@ func (m Model) renderYearHeatmap(values map[string]int64, maxValue int64) string
 		firstWeek = firstWeek.AddDate(0, 0, (weeks-maxWeeks)*7)
 		weeks = maxWeeks
 	}
+	scaleValues := make([]int64, 0, weeks*7)
+	for week := 0; week < weeks; week++ {
+		for day := 0; day < 7; day++ {
+			date := firstWeek.AddDate(0, 0, week*7+day)
+			scaleValues = append(scaleValues, values[date.Format("2006-01-02")])
+		}
+	}
+	scale := newHeatmapScale(scaleValues)
 
 	lines := []string{m.monthHeader(firstWeek, weeks)}
 	dayLabels := []string{"Mon", "", "Wed", "", "Fri", "", ""}
@@ -605,7 +622,7 @@ func (m Model) renderYearHeatmap(values map[string]int64, maxValue int64) string
 		for week := 0; week < weeks; week++ {
 			date := firstWeek.AddDate(0, 0, week*7+day)
 			value := values[date.Format("2006-01-02")]
-			line += m.heatmapCell(value, maxValue)
+			line += m.heatmapCellForLevel(scale.level(value))
 		}
 		lines = append(lines, line)
 	}
@@ -657,15 +674,16 @@ func (m Model) renderGroupedHeatmap(rows []usage.ReportRow, groupBy string) stri
 	if len(rows) > maxBuckets {
 		rows = rows[len(rows)-maxBuckets:]
 	}
-	maxValue := int64(0)
+	scaleValues := make([]int64, 0, len(rows))
 	for _, row := range rows {
-		maxValue = max(maxValue, row.Usage.TotalTokens)
+		scaleValues = append(scaleValues, row.Usage.TotalTokens)
 	}
+	scale := newHeatmapScale(scaleValues)
 	labelLine := "    "
 	cellLine := "    "
 	for _, row := range rows {
 		labelLine += padRight(truncatePlain(activityBucketLabel(row.Label, groupBy), 3), 4)
-		cellLine += m.heatmapCell(row.Usage.TotalTokens, maxValue)
+		cellLine += m.heatmapCellForLevel(scale.level(row.Usage.TotalTokens))
 	}
 	return strings.Join([]string{
 		strings.TrimRight(labelLine, " "),
@@ -718,7 +736,11 @@ func (m Model) heatmapLegend() string {
 }
 
 func (m Model) heatmapCell(value, maxValue int64) string {
-	level := heatmapLevel(value, maxValue)
+	return m.heatmapCellForLevel(heatmapLevel(value, maxValue))
+}
+
+func (m Model) heatmapCellForLevel(level int) string {
+	level = max(0, min(4, level))
 	glyph := []string{"·", "░", "▒", "▓", "█"}[level]
 	if m.options.NoColor {
 		return glyph
@@ -734,6 +756,60 @@ func (m Model) heatmapCell(value, maxValue int64) string {
 		cellColor = empty
 	}
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(cellColor)).Render(glyph)
+}
+
+type heatmapScale struct {
+	q1  int64
+	q2  int64
+	q3  int64
+	max int64
+}
+
+func newHeatmapScale(values []int64) heatmapScale {
+	nonzero := make([]int64, 0, len(values))
+	for _, value := range values {
+		if value > 0 {
+			nonzero = append(nonzero, value)
+		}
+	}
+	if len(nonzero) == 0 {
+		return heatmapScale{}
+	}
+	sort.Slice(nonzero, func(i, j int) bool { return nonzero[i] < nonzero[j] })
+	return heatmapScale{
+		q1:  heatmapQuartile(nonzero, 1),
+		q2:  heatmapQuartile(nonzero, 2),
+		q3:  heatmapQuartile(nonzero, 3),
+		max: nonzero[len(nonzero)-1],
+	}
+}
+
+func heatmapQuartile(sorted []int64, quartile int) int64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	index := int(math.Ceil(float64(len(sorted))*float64(quartile)/4)) - 1
+	index = max(0, min(len(sorted)-1, index))
+	return sorted[index]
+}
+
+func (s heatmapScale) level(value int64) int {
+	if value <= 0 || s.max <= 0 {
+		return 0
+	}
+	if value >= s.max {
+		return 4
+	}
+	switch {
+	case value <= s.q1:
+		return 1
+	case value <= s.q2:
+		return 2
+	case value <= s.q3:
+		return 3
+	default:
+		return 4
+	}
 }
 
 func heatmapLevel(value, maxValue int64) int {
@@ -1271,13 +1347,13 @@ func (m Model) trendsLegend() string {
 	if m.options.NoColor {
 		return "usage · average"
 	}
-	usage := lipgloss.NewStyle().Foreground(lipgloss.Color("#8BD5CA")).Render("usage")
-	average := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5CF6")).Render("average")
-	if m.theme == ThemeLight {
-		usage = lipgloss.NewStyle().Foreground(lipgloss.Color("#0891B2")).Render("usage")
-		average = lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED")).Render("average")
-	}
+	usage := trendLegendLabel("usage", asciigraph.Cyan)
+	average := trendLegendLabel("average", asciigraph.Purple)
 	return usage + s.Muted.Render(" · ") + average
+}
+
+func trendLegendLabel(label string, color asciigraph.AnsiColor) string {
+	return color.String() + label + asciigraph.Default.String()
 }
 
 func (m Model) statChip(label, value string, valueStyle lipgloss.Style) string {

@@ -601,6 +601,25 @@ func TestColorHeatmapUsesDitheredBlocksAndOneActiveColor(t *testing.T) {
 	}
 }
 
+func TestOverviewHeatmapSpreadsSkewedUsageAcrossDitherLevels(t *testing.T) {
+	rows := []usage.ReportRow{
+		{Label: "2026-05-25", Sessions: 1, Models: []string{"gpt-5.5"}, Efforts: []string{"medium"}, Modes: []string{"default"}, Usage: usage.Usage{TotalTokens: 100}},
+		{Label: "2026-05-26", Sessions: 1, Models: []string{"gpt-5.5"}, Efforts: []string{"medium"}, Modes: []string{"default"}, Usage: usage.Usage{TotalTokens: 200}},
+		{Label: "2026-05-27", Sessions: 1, Models: []string{"gpt-5.5"}, Efforts: []string{"medium"}, Modes: []string{"default"}, Usage: usage.Usage{TotalTokens: 300}},
+		{Label: "2026-05-28", Sessions: 1, Models: []string{"gpt-5.5"}, Efforts: []string{"medium"}, Modes: []string{"default"}, Usage: usage.Usage{TotalTokens: 400}},
+		{Label: "2026-06-01", Sessions: 1, Models: []string{"gpt-5.5"}, Efforts: []string{"xhigh"}, Modes: []string{"default"}, Usage: usage.Usage{TotalTokens: 1_000_000}},
+	}
+	model := NewLoadedModel(reportFromRows(rows, "day", time.Date(2026, 5, 25, 0, 0, 0, 0, time.UTC), time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)), Options{Theme: "dark", NoAnimation: true})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	updated := next.(Model)
+	grid := stripANSI(overviewHeatmapGrid(updated.renderOverview()))
+	for _, glyph := range []string{"░", "▒", "▓", "█"} {
+		if !strings.Contains(grid, glyph) {
+			t.Fatalf("skewed overview heatmap should show dither level %q in grid, got:\n%s", glyph, grid)
+		}
+	}
+}
+
 func TestOverviewUsesGroupedHeatmapForMonthRows(t *testing.T) {
 	model := NewLoadedModel(sampleMonthReport(), Options{Theme: "dark", NoAnimation: true})
 	next, _ := model.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
@@ -664,6 +683,19 @@ func TestTrendsDrawsAverageReferenceLine(t *testing.T) {
 	plain := stripANSI(rendered)
 	if !strings.Contains(plain, "usage") || !strings.Contains(plain, "average") {
 		t.Fatalf("trends should label usage and average series:\n%s", plain)
+	}
+	legendLine := ""
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.Contains(stripANSI(line), "usage") && strings.Contains(stripANSI(line), "average") {
+			legendLine = line
+			break
+		}
+	}
+	if legendLine == "" {
+		t.Fatalf("trends should render a usage/average legend:\n%s", rendered)
+	}
+	if !strings.Contains(legendLine, "\x1b[96musage") || !strings.Contains(legendLine, "\x1b[35maverage") {
+		t.Fatalf("trend legend should use the same colors as the plotted series, got %q", legendLine)
 	}
 	if !strings.Contains(rendered, "\x1b[96m") {
 		t.Fatalf("trends should draw usage in cyan:\n%s", rendered)
