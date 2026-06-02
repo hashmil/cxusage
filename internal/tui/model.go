@@ -420,10 +420,6 @@ func (m Model) renderOverview() string {
 	rows := []string{}
 	total := scaleInt(m.report.Totals.TotalTokens, m.progress)
 	cost := m.report.TotalCostUSD * m.progress
-	input := scaleInt(m.report.Totals.InputTokens, m.progress)
-	output := scaleInt(m.report.Totals.OutputTokens, m.progress)
-	cached := scaleInt(m.report.Totals.CachedInputTokens, m.progress)
-	reasoning := scaleInt(m.report.Totals.ReasoningOutputTokens, m.progress)
 
 	cards := []string{
 		m.kpiCard("Total tokens", formatInt(total), m.styles().Accent),
@@ -439,13 +435,8 @@ func (m Model) renderOverview() string {
 	} else {
 		rows = append(rows, cards...)
 	}
-	rows = append(rows, "",
-		m.metricLine("Input", input, m.report.Totals.TotalTokens),
-		m.metricLine("Cached input", cached, m.report.Totals.TotalTokens),
-		m.metricLine("Output", output, m.report.Totals.TotalTokens),
-		m.metricLine("Reasoning output", reasoning, m.report.Totals.TotalTokens),
-	)
-	rows = append(rows, "", m.styles().Section.Render("Recent usage"), m.renderSessionsTable(m.filteredRows(), min(8, max(3, m.height-17))))
+	rows = append(rows, "", m.renderUsageActivity())
+	rows = append(rows, "", m.styles().Section.Render("Recent usage"), m.renderSessionsTable(m.filteredRows(), min(6, max(3, m.height-24))))
 	return strings.Join(rows, "\n")
 }
 
@@ -461,18 +452,194 @@ func (m Model) kpiCard(label, value string, valueStyle lipgloss.Style) string {
 	)
 }
 
-func (m Model) metricLine(label string, value, total int64) string {
-	barWidth := max(8, min(36, m.width-32))
-	ratio := 0.0
-	if total > 0 {
-		ratio = float64(value) / float64(total)
+func (m Model) renderUsageActivity() string {
+	s := m.styles()
+	rows := m.report.Rows
+	if len(rows) == 0 {
+		return s.Section.Render("Usage activity") + "\n" + s.Muted.Render("No token events in this timeframe.")
 	}
-	fill := m.breakdownFillColor("Token types", label, 0)
-	valueText := formatInt(value)
-	if !m.options.NoColor {
-		valueText = lipgloss.NewStyle().Foreground(fill).Render(valueText)
+	groupBy := m.report.GroupBy
+	if groupBy == "" {
+		groupBy = m.groupBy
 	}
-	return fmt.Sprintf("%-16s %s  %s", label, m.progressBarWithColor(ratio, barWidth, fill), padRight(valueText, 14))
+	if groupBy == "day" {
+		return s.Section.Render("Usage activity") + "\n" + m.renderDayHeatmap(rows)
+	}
+	return s.Section.Render("Usage activity") + "\n" + m.renderGroupedHeatmap(rows, groupBy)
+}
+
+func (m Model) renderDayHeatmap(rows []usage.ReportRow) string {
+	values := map[time.Time]int64{}
+	minDate := time.Time{}
+	maxDate := time.Time{}
+	maxValue := int64(0)
+	for _, row := range rows {
+		date, err := time.Parse("2006-01-02", row.Label)
+		if err != nil {
+			return m.renderGroupedHeatmap(rows, "day")
+		}
+		date = dayOnly(date)
+		values[date] = row.Usage.TotalTokens
+		maxValue = max(maxValue, row.Usage.TotalTokens)
+		if minDate.IsZero() || date.Before(minDate) {
+			minDate = date
+		}
+		if maxDate.IsZero() || date.After(maxDate) {
+			maxDate = date
+		}
+	}
+	start := dayOnly(m.report.Start)
+	end := dayOnly(m.report.End).AddDate(0, 0, -1)
+	if start.IsZero() || end.Before(start) {
+		start = minDate
+		end = maxDate
+	}
+	if minDate.Before(start) {
+		start = minDate
+	}
+	if maxDate.After(end) {
+		end = maxDate
+	}
+	if start.IsZero() || end.IsZero() {
+		return m.styles().Muted.Render("No token events in this timeframe.")
+	}
+
+	firstWeek := start.AddDate(0, 0, -mondayOffset(start))
+	lastWeek := end.AddDate(0, 0, 6-mondayOffset(end))
+	weeks := int(lastWeek.Sub(firstWeek).Hours()/24)/7 + 1
+	maxWeeks := max(1, (m.width-6)/2)
+	if weeks > maxWeeks {
+		firstWeek = firstWeek.AddDate(0, 0, (weeks-maxWeeks)*7)
+		weeks = maxWeeks
+	}
+
+	lines := []string{m.monthHeader(firstWeek, weeks)}
+	dayLabels := []string{"Mon", "", "Wed", "", "Fri", "", ""}
+	for day := 0; day < 7; day++ {
+		line := padRight(dayLabels[day], 3) + " "
+		for week := 0; week < weeks; week++ {
+			date := firstWeek.AddDate(0, 0, week*7+day)
+			value := int64(0)
+			if !date.Before(start) && !date.After(end) {
+				value = values[date]
+			}
+			line += m.heatmapCell(value, maxValue) + " "
+		}
+		lines = append(lines, line)
+	}
+	lines = append(lines, m.heatmapLegend())
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) monthHeader(start time.Time, weeks int) string {
+	labelWidth := 4
+	cellWidth := 2
+	width := labelWidth + weeks*cellWidth + 3
+	chars := []rune(strings.Repeat(" ", width))
+	lastMonth := time.Month(0)
+	nextFree := labelWidth
+	for week := 0; week < weeks; week++ {
+		date := start.AddDate(0, 0, week*7)
+		if week == 0 || date.Day() <= 7 || date.Month() != lastMonth {
+			label := date.Format("Jan")
+			offset := max(labelWidth+week*cellWidth, nextFree)
+			if offset+len(label) > len(chars) {
+				lastMonth = date.Month()
+				continue
+			}
+			for i, char := range label {
+				if offset+i < len(chars) {
+					chars[offset+i] = char
+				}
+			}
+			nextFree = offset + len(label) + 1
+			lastMonth = date.Month()
+		}
+	}
+	return strings.TrimRight(string(chars), " ")
+}
+
+func (m Model) renderGroupedHeatmap(rows []usage.ReportRow, groupBy string) string {
+	maxBuckets := max(1, (m.width-4)/4)
+	if len(rows) > maxBuckets {
+		rows = rows[len(rows)-maxBuckets:]
+	}
+	maxValue := int64(0)
+	for _, row := range rows {
+		maxValue = max(maxValue, row.Usage.TotalTokens)
+	}
+	labelLine := "    "
+	cellLine := "    "
+	for _, row := range rows {
+		labelLine += padRight(truncatePlain(activityBucketLabel(row.Label, groupBy), 3), 4)
+		cellLine += padRight(m.heatmapCell(row.Usage.TotalTokens, maxValue), 4)
+	}
+	return strings.Join([]string{
+		strings.TrimRight(labelLine, " "),
+		strings.TrimRight(cellLine, " "),
+		m.heatmapLegend(),
+	}, "\n")
+}
+
+func activityBucketLabel(label, groupBy string) string {
+	switch groupBy {
+	case "month":
+		if date, err := time.Parse("2006-01", label); err == nil {
+			return date.Format("Jan")
+		}
+	case "week":
+		parts := strings.Split(label, "-W")
+		if len(parts) == 2 {
+			return "W" + parts[1]
+		}
+	}
+	return label
+}
+
+func (m Model) heatmapLegend() string {
+	s := m.styles()
+	return "    " + s.Muted.Render("Less ") +
+		m.heatmapCell(0, 4) + " " +
+		m.heatmapCell(1, 4) + " " +
+		m.heatmapCell(2, 4) + " " +
+		m.heatmapCell(3, 4) + " " +
+		m.heatmapCell(4, 4) + " " +
+		s.Muted.Render("More")
+}
+
+func (m Model) heatmapCell(value, maxValue int64) string {
+	level := heatmapLevel(value, maxValue)
+	if m.options.NoColor {
+		return []string{"·", "░", "▒", "▓", "█"}[level]
+	}
+	colors := []string{"#303243", "#6D5EF9", "#00A6D6", "#44D07B", "#F2E85E"}
+	if m.theme == ThemeLight {
+		colors = []string{"#E5E7EB", "#6D5EF9", "#0284C7", "#16A34A", "#CA8A04"}
+	}
+	glyph := "█"
+	if level == 0 {
+		glyph = "·"
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(colors[level])).Render(glyph)
+}
+
+func heatmapLevel(value, maxValue int64) int {
+	if value <= 0 || maxValue <= 0 {
+		return 0
+	}
+	level := int(math.Ceil(float64(value) / float64(maxValue) * 4))
+	return max(1, min(4, level))
+}
+
+func dayOnly(value time.Time) time.Time {
+	if value.IsZero() {
+		return time.Time{}
+	}
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
+}
+
+func mondayOffset(value time.Time) int {
+	return (int(value.Weekday()) + 6) % 7
 }
 
 func (m Model) renderTrends() string {

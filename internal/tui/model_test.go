@@ -88,6 +88,95 @@ func sampleReportWithManyRows() usage.Report {
 	}
 }
 
+func sampleCalendarReport() usage.Report {
+	rows := []usage.ReportRow{
+		{
+			Label:    "2026-05-25",
+			Sessions: 1,
+			Models:   []string{"gpt-5.5"},
+			Efforts:  []string{"medium"},
+			Modes:    []string{"default"},
+			Usage:    usage.Usage{InputTokens: 900, CachedInputTokens: 200, OutputTokens: 100, TotalTokens: 1000},
+			CostUSD:  usage.EstimateCostUSD(usage.Usage{InputTokens: 900, CachedInputTokens: 200, OutputTokens: 100, TotalTokens: 1000}),
+		},
+		{
+			Label:    "2026-06-01",
+			Sessions: 3,
+			Models:   []string{"gpt-5.5"},
+			Efforts:  []string{"xhigh"},
+			Modes:    []string{"default"},
+			Usage:    usage.Usage{InputTokens: 3800, CachedInputTokens: 1200, OutputTokens: 400, TotalTokens: 4200},
+			CostUSD:  usage.EstimateCostUSD(usage.Usage{InputTokens: 3800, CachedInputTokens: 1200, OutputTokens: 400, TotalTokens: 4200}),
+		},
+		{
+			Label:    "2026-06-03",
+			Sessions: 2,
+			Models:   []string{"codex-auto-review"},
+			Efforts:  []string{"high"},
+			Modes:    []string{"plan"},
+			Usage:    usage.Usage{InputTokens: 1600, CachedInputTokens: 800, OutputTokens: 250, TotalTokens: 1850},
+			CostUSD:  usage.EstimateCostUSD(usage.Usage{InputTokens: 1600, CachedInputTokens: 800, OutputTokens: 250, TotalTokens: 1850}),
+		},
+	}
+	return reportFromRows(rows, "day", time.Date(2026, 5, 25, 0, 0, 0, 0, time.UTC), time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC))
+}
+
+func sampleMonthReport() usage.Report {
+	rows := []usage.ReportRow{
+		{
+			Label:    "2026-04",
+			Sessions: 2,
+			Models:   []string{"gpt-5.5"},
+			Efforts:  []string{"medium"},
+			Modes:    []string{"default"},
+			Usage:    usage.Usage{InputTokens: 1000, OutputTokens: 100, TotalTokens: 1100},
+			CostUSD:  usage.EstimateCostUSD(usage.Usage{InputTokens: 1000, OutputTokens: 100, TotalTokens: 1100}),
+		},
+		{
+			Label:    "2026-05",
+			Sessions: 6,
+			Models:   []string{"gpt-5.5"},
+			Efforts:  []string{"xhigh"},
+			Modes:    []string{"default"},
+			Usage:    usage.Usage{InputTokens: 9000, OutputTokens: 900, TotalTokens: 9900},
+			CostUSD:  usage.EstimateCostUSD(usage.Usage{InputTokens: 9000, OutputTokens: 900, TotalTokens: 9900}),
+		},
+		{
+			Label:    "2026-06",
+			Sessions: 4,
+			Models:   []string{"codex-auto-review"},
+			Efforts:  []string{"high"},
+			Modes:    []string{"plan"},
+			Usage:    usage.Usage{InputTokens: 3200, OutputTokens: 250, TotalTokens: 3450},
+			CostUSD:  usage.EstimateCostUSD(usage.Usage{InputTokens: 3200, OutputTokens: 250, TotalTokens: 3450}),
+		},
+	}
+	return reportFromRows(rows, "month", time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
+}
+
+func reportFromRows(rows []usage.ReportRow, groupBy string, start, end time.Time) usage.Report {
+	total := usage.Usage{}
+	cost := 0.0
+	sessions := 0
+	for _, row := range rows {
+		total = total.Add(row.Usage)
+		cost += row.CostUSD
+		sessions += row.Sessions
+	}
+	return usage.Report{
+		Title:           "Codex Usage Report",
+		Start:           start,
+		End:             end,
+		GroupBy:         groupBy,
+		Rows:            rows,
+		Totals:          total,
+		TotalCostUSD:    cost,
+		SessionsCounted: sessions,
+		FilesCounted:    len(rows),
+		EventsCounted:   len(rows),
+	}
+}
+
 func TestAutoThemeUsesDetector(t *testing.T) {
 	model := NewLoadedModel(sampleReport(), Options{
 		Theme:       "auto",
@@ -189,7 +278,7 @@ func TestLoadingViewFallsBackForNarrowTerminals(t *testing.T) {
 	}
 }
 
-func TestOverviewUsesKPIBoxesAndSolidProgressBars(t *testing.T) {
+func TestOverviewUsesKPIBoxesAndActivityHeatmap(t *testing.T) {
 	model := NewLoadedModel(sampleReport(), Options{Theme: "dark", NoAnimation: true})
 	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	updated := next.(Model)
@@ -201,50 +290,58 @@ func TestOverviewUsesKPIBoxesAndSolidProgressBars(t *testing.T) {
 	if !hasStandaloneRoundedPanelLine(plain) {
 		t.Fatalf("overview should render boxed KPI cards, got:\n%s", plain)
 	}
-	if !strings.Contains(plain, "█") {
-		t.Fatalf("overview should use solid progress bars, got:\n%s", plain)
+	if !strings.Contains(plain, "Usage activity") {
+		t.Fatalf("overview should render usage activity heatmap, got:\n%s", plain)
 	}
 }
 
-func TestOverviewTokenMetricsUseSemanticColorsAndAlignedValues(t *testing.T) {
-	model := NewLoadedModel(sampleReport(), Options{Theme: "dark", NoAnimation: true})
+func TestOverviewReplacesTokenBarsWithCalendarHeatmap(t *testing.T) {
+	model := NewLoadedModel(sampleCalendarReport(), Options{Theme: "dark", NoAnimation: true})
 	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	updated := next.(Model)
 	rendered := updated.renderOverview()
-	for _, sequence := range []string{
-		rgbSequence(128, 201, 144),
-		rgbSequence(139, 213, 202),
-		rgbSequence(239, 131, 84),
-		rgbSequence(198, 208, 245),
-	} {
-		if !strings.Contains(rendered, sequence) {
-			t.Fatalf("overview token rows should use semantic colors; missing %q in:\n%s", sequence, rendered)
-		}
-	}
-
 	plain := stripANSI(rendered)
-	lines := overviewMetricLines(plain)
-	if len(lines) != 4 {
-		t.Fatalf("expected 4 token metric lines, got %d:\n%s", len(lines), plain)
-	}
-	values := []string{
-		formatInt(sampleReport().Totals.InputTokens),
-		formatInt(sampleReport().Totals.CachedInputTokens),
-		formatInt(sampleReport().Totals.OutputTokens),
-		formatInt(sampleReport().Totals.ReasoningOutputTokens),
-	}
-	valueColumn := -1
-	for i, line := range lines {
-		index := strings.Index(line, values[i])
-		if index < 0 {
-			t.Fatalf("metric line missing value %q: %q", values[i], line)
+	for _, expected := range []string{"Usage activity", "May", "Jun", "Mon", "Wed", "Fri", "Less", "More"} {
+		if !strings.Contains(plain, expected) {
+			t.Fatalf("overview heatmap should include %q, got:\n%s", expected, plain)
 		}
-		if valueColumn < 0 {
-			valueColumn = index
-			continue
+	}
+	for _, oldMetric := range []string{"Input", "Cached input", "Output", "Reasoning output"} {
+		if strings.Contains(plain, oldMetric) {
+			t.Fatalf("overview should replace token metric bars, still found %q in:\n%s", oldMetric, plain)
 		}
-		if index != valueColumn {
-			t.Fatalf("metric values should start at column %d, got %d in line %q", valueColumn, index, line)
+	}
+	heatmapRendered := rendered[strings.Index(rendered, "Usage activity"):]
+	if index := strings.Index(heatmapRendered, "Recent usage"); index >= 0 {
+		heatmapRendered = heatmapRendered[:index]
+	}
+	for _, sequence := range []string{
+		rgbSequence(109, 94, 249),
+		rgbSequence(68, 208, 123),
+		rgbSequence(242, 232, 94),
+	} {
+		if !strings.Contains(heatmapRendered, sequence) {
+			t.Fatalf("overview heatmap should use original multi-hue activity cells; missing %q in:\n%s", sequence, heatmapRendered)
+		}
+	}
+	if strings.Contains(heatmapRendered, rgbSequence(239, 131, 84)) {
+		t.Fatalf("overview heatmap should not use the earlier orange activity ramp:\n%s", heatmapRendered)
+	}
+}
+
+func TestOverviewUsesGroupedHeatmapForMonthRows(t *testing.T) {
+	model := NewLoadedModel(sampleMonthReport(), Options{Theme: "dark", NoAnimation: true})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
+	updated := next.(Model)
+	rendered := stripANSI(updated.renderOverview())
+	for _, expected := range []string{"Usage activity", "Apr", "May", "Jun", "Less", "More"} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("month overview heatmap should include %q, got:\n%s", expected, rendered)
+		}
+	}
+	for _, line := range strings.Split(rendered, "\n") {
+		if len([]rune(line)) > 90 {
+			t.Fatalf("line width %d exceeds 90: %q", len([]rune(line)), line)
 		}
 	}
 }
@@ -336,18 +433,4 @@ func hasStandaloneRoundedPanelLine(value string) bool {
 
 func rgbSequence(red, green, blue int) string {
 	return "\x1b[38;2;" + formatInt(int64(red)) + ";" + formatInt(int64(green)) + ";" + formatInt(int64(blue)) + "m"
-}
-
-func overviewMetricLines(value string) []string {
-	prefixes := []string{"Input", "Cached input", "Output", "Reasoning output"}
-	out := []string{}
-	for _, line := range strings.Split(value, "\n") {
-		for _, prefix := range prefixes {
-			if strings.HasPrefix(line, prefix) {
-				out = append(out, line)
-				break
-			}
-		}
-	}
-	return out
 }
