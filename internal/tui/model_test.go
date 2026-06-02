@@ -154,6 +154,73 @@ func sampleMonthReport() usage.Report {
 	return reportFromRows(rows, "month", time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC))
 }
 
+func sampleLocalTimezoneCalendarReport() usage.Report {
+	location := time.FixedZone("GST", 4*60*60)
+	rows := []usage.ReportRow{
+		{
+			Label:    "2026-05-04",
+			Sessions: 1,
+			Models:   []string{"gpt-5.5"},
+			Efforts:  []string{"high"},
+			Modes:    []string{"default"},
+			Usage:    usage.Usage{InputTokens: 3000, CachedInputTokens: 1200, OutputTokens: 200, TotalTokens: 3200},
+			CostUSD:  usage.EstimateCostUSD(usage.Usage{InputTokens: 3000, CachedInputTokens: 1200, OutputTokens: 200, TotalTokens: 3200}),
+		},
+	}
+	return reportFromRows(rows, "day", time.Date(2026, 5, 3, 19, 44, 0, 0, location), time.Date(2026, 6, 2, 19, 44, 0, 0, location))
+}
+
+func emptyCalendarReport() usage.Report {
+	location := time.FixedZone("GST", 4*60*60)
+	return usage.Report{
+		Title:   "Codex Usage Report",
+		Start:   time.Date(2026, 5, 3, 19, 44, 0, 0, location),
+		End:     time.Date(2026, 6, 2, 19, 44, 0, 0, location),
+		GroupBy: "day",
+	}
+}
+
+func sampleTodayReport() usage.Report {
+	location := time.FixedZone("GST", 4*60*60)
+	rows := []usage.ReportRow{
+		{
+			Label:    "2026-06-02",
+			Sessions: 4,
+			Models:   []string{"gpt-5.5"},
+			Efforts:  []string{"xhigh"},
+			Modes:    []string{"default"},
+			Usage:    usage.Usage{InputTokens: 9000, CachedInputTokens: 4000, OutputTokens: 600, TotalTokens: 9600},
+			CostUSD:  usage.EstimateCostUSD(usage.Usage{InputTokens: 9000, CachedInputTokens: 4000, OutputTokens: 600, TotalTokens: 9600}),
+		},
+	}
+	return reportFromRows(rows, "day", time.Date(2026, 6, 2, 0, 0, 0, 0, location), time.Date(2026, 6, 2, 19, 44, 0, 0, location))
+}
+
+func sampleWeekReport() usage.Report {
+	location := time.FixedZone("GST", 4*60*60)
+	rows := []usage.ReportRow{
+		{
+			Label:    "2026-06-01",
+			Sessions: 2,
+			Models:   []string{"gpt-5.5"},
+			Efforts:  []string{"high"},
+			Modes:    []string{"default"},
+			Usage:    usage.Usage{InputTokens: 2000, OutputTokens: 200, TotalTokens: 2200},
+			CostUSD:  usage.EstimateCostUSD(usage.Usage{InputTokens: 2000, OutputTokens: 200, TotalTokens: 2200}),
+		},
+		{
+			Label:    "2026-06-03",
+			Sessions: 3,
+			Models:   []string{"gpt-5.5"},
+			Efforts:  []string{"xhigh"},
+			Modes:    []string{"plan"},
+			Usage:    usage.Usage{InputTokens: 7000, OutputTokens: 500, TotalTokens: 7500},
+			CostUSD:  usage.EstimateCostUSD(usage.Usage{InputTokens: 7000, OutputTokens: 500, TotalTokens: 7500}),
+		},
+	}
+	return reportFromRows(rows, "day", time.Date(2026, 6, 1, 0, 0, 0, 0, location), time.Date(2026, 6, 4, 12, 0, 0, 0, location))
+}
+
 func reportFromRows(rows []usage.ReportRow, groupBy string, start, end time.Time) usage.Report {
 	total := usage.Usage{}
 	cost := 0.0
@@ -329,6 +396,135 @@ func TestOverviewReplacesTokenBarsWithCalendarHeatmap(t *testing.T) {
 	}
 }
 
+func TestOverviewCalendarHeatmapMapsLocalTimezoneDates(t *testing.T) {
+	model := NewLoadedModel(sampleLocalTimezoneCalendarReport(), Options{Theme: "dark", NoAnimation: true})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	updated := next.(Model)
+	grid := stripANSI(overviewHeatmapGrid(updated.renderOverview()))
+	if !strings.Contains(grid, "█") {
+		t.Fatalf("overview heatmap should map local timeframe dates to activity cells, got:\n%s", grid)
+	}
+}
+
+func TestOverviewCalendarHeatmapKeepsYearContextForSparseRange(t *testing.T) {
+	model := NewLoadedModel(sampleLocalTimezoneCalendarReport(), Options{Theme: "dark", NoAnimation: true})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	updated := next.(Model)
+	rendered := stripANSI(updated.renderOverview())
+	for _, expected := range []string{"Jul", "Jan", "Apr", "May", "Jun"} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("overview heatmap should keep year calendar context with %q, got:\n%s", expected, rendered)
+		}
+	}
+}
+
+func TestOverviewCalendarHeatmapShowsEmptyYearScaffold(t *testing.T) {
+	model := NewLoadedModel(emptyCalendarReport(), Options{Theme: "dark", NoAnimation: true})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	updated := next.(Model)
+	rendered := stripANSI(updated.renderOverview())
+	if strings.Contains(rendered, "No token events in this timeframe.") {
+		t.Fatalf("overview should render an empty calendar scaffold instead of a no-data message:\n%s", rendered)
+	}
+	for _, expected := range []string{"Usage activity", "Jan", "Mon", "Wed", "Fri", "Less", "More"} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("empty overview heatmap should include %q, got:\n%s", expected, rendered)
+		}
+	}
+}
+
+func TestOverviewHeatmapAdaptsToTodayRange(t *testing.T) {
+	model := NewLoadedModel(sampleTodayReport(), Options{Theme: "dark", NoAnimation: true, Timeframe: usage.TimeframeOptions{Today: true}})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	updated := next.(Model)
+	rendered := stripANSI(updated.renderOverview())
+	grid := stripANSI(overviewHeatmapGrid(updated.renderOverview()))
+	for _, expected := range []string{"Tue", "Jun 02", "█"} {
+		if !strings.Contains(grid, expected) {
+			t.Fatalf("today overview should render focused day activity with %q, got:\n%s", expected, grid)
+		}
+	}
+	if strings.Contains(rendered, "Jan") || strings.Contains(rendered, "Jul") {
+		t.Fatalf("today overview should not render the full year calendar, got:\n%s", rendered)
+	}
+}
+
+func TestOverviewHeatmapAdaptsToWeekRange(t *testing.T) {
+	model := NewLoadedModel(sampleWeekReport(), Options{Theme: "dark", NoAnimation: true, Timeframe: usage.TimeframeOptions{Week: true}})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	updated := next.(Model)
+	rendered := stripANSI(updated.renderOverview())
+	grid := stripANSI(overviewHeatmapGrid(updated.renderOverview()))
+	for _, expected := range []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "█"} {
+		if !strings.Contains(grid, expected) {
+			t.Fatalf("week overview should render 7-day activity with %q, got:\n%s", expected, grid)
+		}
+	}
+	if strings.Contains(rendered, "Jan") || strings.Contains(rendered, "Jul") {
+		t.Fatalf("week overview should not render the full year calendar, got:\n%s", rendered)
+	}
+}
+
+func TestOverviewRendersTimeframeSelectorBelowHeatmap(t *testing.T) {
+	model := NewLoadedModel(sampleCalendarReport(), Options{Theme: "dark", NoAnimation: true})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	updated := next.(Model)
+	rendered := stripANSI(updated.renderOverview())
+	heatmapIndex := strings.Index(rendered, "Usage activity")
+	rangeIndex := strings.Index(rendered, "Last 30d")
+	recentIndex := strings.Index(rendered, "Recent usage")
+	if heatmapIndex < 0 || rangeIndex < 0 || recentIndex < 0 {
+		t.Fatalf("overview should render heatmap, range selector, and recent usage, got:\n%s", rendered)
+	}
+	if !(heatmapIndex < rangeIndex && rangeIndex < recentIndex) {
+		t.Fatalf("range selector should render below heatmap and above recent usage, got:\n%s", rendered)
+	}
+	for _, expected := range []string{"Last 30d", "Today", "Yesterday", "Current Week", "Last Week", "Current Month"} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("range selector should include %q, got:\n%s", expected, rendered)
+		}
+	}
+}
+
+func TestOverviewArrowSelectorAppliesTimeframe(t *testing.T) {
+	model := NewLoadedModel(sampleCalendarReport(), Options{Theme: "dark", NoAnimation: true})
+	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	updated := next.(Model)
+
+	next, _ = updated.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	updated = next.(Model)
+
+	next, _ = updated.Update(tea.KeyPressMsg(tea.Key{Text: "l", Code: 'l'}))
+	updated = next.(Model)
+	if timeframeLabel(updated.timeframe) != "Last 30d" {
+		t.Fatalf("timeframe should not apply until enter, got %q", timeframeLabel(updated.timeframe))
+	}
+
+	next, cmd := updated.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	updated = next.(Model)
+	if cmd == nil {
+		t.Fatalf("enter should trigger a report reload")
+	}
+	if timeframeLabel(updated.timeframe) != "Today" {
+		t.Fatalf("enter should apply selected timeframe, got %q", timeframeLabel(updated.timeframe))
+	}
+	if updated.view != 0 {
+		t.Fatalf("timeframe selector navigation should keep overview active, got view %d", updated.view)
+	}
+}
+
+func TestFShortcutStillCyclesTimeframe(t *testing.T) {
+	model := NewLoadedModel(sampleCalendarReport(), Options{Theme: "dark", NoAnimation: true})
+	next, cmd := model.Update(tea.KeyPressMsg(tea.Key{Text: "f", Code: 'f'}))
+	updated := next.(Model)
+	if cmd == nil {
+		t.Fatalf("f should trigger a report reload")
+	}
+	if timeframeLabel(updated.timeframe) != "Today" {
+		t.Fatalf("f should still cycle to Today, got %q", timeframeLabel(updated.timeframe))
+	}
+}
+
 func TestOverviewHeatmapAvoidsOrangeInLightTheme(t *testing.T) {
 	model := NewLoadedModel(sampleCalendarReport(), Options{Theme: "light", NoAnimation: true})
 	next, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -455,4 +651,16 @@ func hasStandaloneRoundedPanelLine(value string) bool {
 
 func rgbSequence(red, green, blue int) string {
 	return "\x1b[38;2;" + formatInt(int64(red)) + ";" + formatInt(int64(green)) + ";" + formatInt(int64(blue)) + "m"
+}
+
+func overviewHeatmapGrid(rendered string) string {
+	start := strings.Index(rendered, "Usage activity")
+	if start < 0 {
+		return rendered
+	}
+	value := rendered[start:]
+	if index := strings.Index(value, "Less"); index >= 0 {
+		value = value[:index]
+	}
+	return value
 }

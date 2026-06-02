@@ -50,23 +50,25 @@ type Options struct {
 }
 
 type Model struct {
-	options      Options
-	report       usage.Report
-	err          error
-	loading      bool
-	view         int
-	width        int
-	height       int
-	selected     int
-	filtering    bool
-	filter       string
-	groupBy      string
-	timeframe    usage.TimeframeOptions
-	frameIndex   int
-	theme        ThemeName
-	progress     float64
-	loadingFrame int
-	spinner      spinner.Model
+	options            Options
+	report             usage.Report
+	err                error
+	loading            bool
+	view               int
+	width              int
+	height             int
+	selected           int
+	filtering          bool
+	filter             string
+	groupBy            string
+	timeframe          usage.TimeframeOptions
+	frameIndex         int
+	timeframeSelection int
+	overviewFocus      overviewFocus
+	theme              ThemeName
+	progress           float64
+	loadingFrame       int
+	spinner            spinner.Model
 }
 
 type reportLoadedMsg struct {
@@ -76,6 +78,14 @@ type reportLoadedMsg struct {
 
 type animationTickMsg struct{}
 
+type overviewFocus int
+
+const (
+	overviewFocusActivity overviewFocus = iota
+	overviewFocusTimeframe
+	overviewFocusRows
+)
+
 func NewModel(options Options) Model {
 	if options.GroupBy == "" {
 		options.GroupBy = "day"
@@ -83,17 +93,19 @@ func NewModel(options Options) Model {
 	if options.Timeframe.Last == "" && !options.Timeframe.Today && !options.Timeframe.Yesterday && !options.Timeframe.Week && !options.Timeframe.LastWeek && !options.Timeframe.Month && options.Timeframe.Since == "" && options.Timeframe.Until == "" {
 		options.Timeframe.Last = "30d"
 	}
+	frameIndex := timeframeIndex(options.Timeframe)
 	m := Model{
-		options:    options,
-		loading:    true,
-		width:      100,
-		height:     28,
-		groupBy:    options.GroupBy,
-		timeframe:  options.Timeframe,
-		frameIndex: timeframeIndex(options.Timeframe),
-		theme:      resolveTheme(options.Theme, options.DetectTheme),
-		progress:   0,
-		spinner:    spinner.New(spinner.WithSpinner(spinner.Line)),
+		options:            options,
+		loading:            true,
+		width:              100,
+		height:             28,
+		groupBy:            options.GroupBy,
+		timeframe:          options.Timeframe,
+		frameIndex:         frameIndex,
+		timeframeSelection: frameIndex,
+		theme:              resolveTheme(options.Theme, options.DetectTheme),
+		progress:           0,
+		spinner:            spinner.New(spinner.WithSpinner(spinner.Line)),
 	}
 	m.spinner.Style = m.styles().Accent
 	if options.NoAnimation {
@@ -219,34 +231,64 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.view = int(key[0] - '1')
 		return m, nil
 	case "right", "l":
+		if m.view == 0 && m.overviewFocus == overviewFocusTimeframe {
+			m.timeframeSelection = (m.timeframeSelection + 1) % len(timeframePresets)
+			return m, nil
+		}
 		m.view = (m.view + 1) % len(viewNames)
 		return m, nil
 	case "left", "h":
+		if m.view == 0 && m.overviewFocus == overviewFocusTimeframe {
+			m.timeframeSelection = (m.timeframeSelection + len(timeframePresets) - 1) % len(timeframePresets)
+			return m, nil
+		}
 		m.view = (m.view + len(viewNames) - 1) % len(viewNames)
 		return m, nil
 	case "down", "j":
+		if m.view == 0 {
+			switch m.overviewFocus {
+			case overviewFocusActivity:
+				m.overviewFocus = overviewFocusTimeframe
+			case overviewFocusTimeframe:
+				m.overviewFocus = overviewFocusRows
+			default:
+				m.selected = min(m.selected+1, max(0, len(m.filteredRows())-1))
+			}
+			return m, nil
+		}
 		m.selected = min(m.selected+1, max(0, len(m.filteredRows())-1))
 		return m, nil
 	case "up", "k":
+		if m.view == 0 {
+			switch m.overviewFocus {
+			case overviewFocusRows:
+				if m.selected > 0 {
+					m.selected--
+				} else {
+					m.overviewFocus = overviewFocusTimeframe
+				}
+			case overviewFocusTimeframe:
+				m.overviewFocus = overviewFocusActivity
+			}
+			return m, nil
+		}
 		m.selected = max(0, m.selected-1)
+		return m, nil
+	case "enter":
+		if m.view == 0 && m.overviewFocus == overviewFocusTimeframe {
+			m.frameIndex = m.timeframeSelection
+			m.timeframe = timeframePresets[m.frameIndex].options
+			return m.startReportReload()
+		}
 		return m, nil
 	case "f":
 		m.frameIndex = (m.frameIndex + 1) % len(timeframePresets)
+		m.timeframeSelection = m.frameIndex
 		m.timeframe = timeframePresets[m.frameIndex].options
-		m.loading = true
-		m.loadingFrame = 0
-		if m.options.NoAnimation {
-			return m, m.loadReportCmd()
-		}
-		return m, tea.Batch(m.loadReportCmd(), m.spinner.Tick, m.animationTick())
+		return m.startReportReload()
 	case "g":
 		m.groupBy = nextGroup(m.groupBy)
-		m.loading = true
-		m.loadingFrame = 0
-		if m.options.NoAnimation {
-			return m, m.loadReportCmd()
-		}
-		return m, tea.Batch(m.loadReportCmd(), m.spinner.Tick, m.animationTick())
+		return m.startReportReload()
 	case "/":
 		m.view = 3
 		m.filtering = true
@@ -290,6 +332,15 @@ func (m Model) loadReportCmd() tea.Cmd {
 		)
 		return reportLoadedMsg{report: report, err: err}
 	}
+}
+
+func (m Model) startReportReload() (Model, tea.Cmd) {
+	m.loading = true
+	m.loadingFrame = 0
+	if m.options.NoAnimation {
+		return m, m.loadReportCmd()
+	}
+	return m, tea.Batch(m.loadReportCmd(), m.spinner.Tick, m.animationTick())
 }
 
 func (m Model) animationTick() tea.Cmd {
@@ -455,55 +506,89 @@ func (m Model) kpiCard(label, value string, valueStyle lipgloss.Style) string {
 func (m Model) renderUsageActivity() string {
 	s := m.styles()
 	rows := m.report.Rows
-	if len(rows) == 0 {
-		return s.Section.Render("Usage activity") + "\n" + s.Muted.Render("No token events in this timeframe.")
-	}
 	groupBy := m.report.GroupBy
 	if groupBy == "" {
 		groupBy = m.groupBy
 	}
+	body := ""
 	if groupBy == "day" {
-		return s.Section.Render("Usage activity") + "\n" + m.renderDayHeatmap(rows)
+		body = m.renderDayHeatmap(rows)
+	} else if len(rows) == 0 {
+		body = s.Muted.Render("No token events in this timeframe.")
+	} else {
+		body = m.renderGroupedHeatmap(rows, groupBy)
 	}
-	return s.Section.Render("Usage activity") + "\n" + m.renderGroupedHeatmap(rows, groupBy)
+	return s.Section.Render("Usage activity") + "\n" + body + "\n" + m.renderTimeframeSelector()
 }
 
 func (m Model) renderDayHeatmap(rows []usage.ReportRow) string {
-	values := map[time.Time]int64{}
-	minDate := time.Time{}
-	maxDate := time.Time{}
+	values := map[string]int64{}
 	maxValue := int64(0)
 	for _, row := range rows {
-		date, err := time.Parse("2006-01-02", row.Label)
-		if err != nil {
+		if _, err := time.Parse("2006-01-02", row.Label); err != nil {
 			return m.renderGroupedHeatmap(rows, "day")
 		}
-		date = dayOnly(date)
-		values[date] = row.Usage.TotalTokens
+		values[row.Label] = row.Usage.TotalTokens
 		maxValue = max(maxValue, row.Usage.TotalTokens)
-		if minDate.IsZero() || date.Before(minDate) {
-			minDate = date
-		}
-		if maxDate.IsZero() || date.After(maxDate) {
-			maxDate = date
-		}
-	}
-	start := dayOnly(m.report.Start)
-	end := dayOnly(m.report.End).AddDate(0, 0, -1)
-	if start.IsZero() || end.Before(start) {
-		start = minDate
-		end = maxDate
-	}
-	if minDate.Before(start) {
-		start = minDate
-	}
-	if maxDate.After(end) {
-		end = maxDate
-	}
-	if start.IsZero() || end.IsZero() {
-		return m.styles().Muted.Render("No token events in this timeframe.")
 	}
 
+	if m.timeframe.Today || m.timeframe.Yesterday {
+		return m.renderSingleDayHeatmap(values, maxValue)
+	}
+	if m.timeframe.Week || m.timeframe.LastWeek {
+		return m.renderWeekHeatmap(values, maxValue)
+	}
+
+	return m.renderYearHeatmap(values, maxValue)
+}
+
+func (m Model) renderSingleDayHeatmap(values map[string]int64, maxValue int64) string {
+	day := dayOnly(m.report.Start)
+	if day.IsZero() {
+		day = overviewInclusiveEnd(m.report.End)
+	}
+	if day.IsZero() {
+		day = dayOnly(time.Now())
+	}
+	value := values[day.Format("2006-01-02")]
+	valueLabel := m.styles().Muted.Render(formatInt(value) + " tokens")
+	return strings.Join([]string{
+		"    " + day.Format("Mon Jan 02"),
+		"    " + m.heatmapCell(value, maxValue) + " " + valueLabel,
+		m.heatmapLegend(),
+	}, "\n")
+}
+
+func (m Model) renderWeekHeatmap(values map[string]int64, maxValue int64) string {
+	start := dayOnly(m.report.Start)
+	if start.IsZero() {
+		start = overviewInclusiveEnd(m.report.End)
+	}
+	if start.IsZero() {
+		start = dayOnly(time.Now())
+	}
+	firstWeek := start.AddDate(0, 0, -mondayOffset(start))
+	labels := []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+	header := "    "
+	cells := "    "
+	for day := 0; day < 7; day++ {
+		date := firstWeek.AddDate(0, 0, day)
+		header += padRight(labels[day], 4)
+		cells += padRight(m.heatmapCell(values[date.Format("2006-01-02")], maxValue), 4)
+	}
+	return strings.Join([]string{
+		strings.TrimRight(header, " "),
+		strings.TrimRight(cells, " "),
+		m.heatmapLegend(),
+	}, "\n")
+}
+
+func (m Model) renderYearHeatmap(values map[string]int64, maxValue int64) string {
+	end := overviewInclusiveEnd(m.report.End)
+	if end.IsZero() {
+		end = dayOnly(time.Now())
+	}
+	start := end.AddDate(0, 0, -364)
 	firstWeek := start.AddDate(0, 0, -mondayOffset(start))
 	lastWeek := end.AddDate(0, 0, 6-mondayOffset(end))
 	weeks := int(lastWeek.Sub(firstWeek).Hours()/24)/7 + 1
@@ -519,16 +604,24 @@ func (m Model) renderDayHeatmap(rows []usage.ReportRow) string {
 		line := padRight(dayLabels[day], 3) + " "
 		for week := 0; week < weeks; week++ {
 			date := firstWeek.AddDate(0, 0, week*7+day)
-			value := int64(0)
-			if !date.Before(start) && !date.After(end) {
-				value = values[date]
-			}
+			value := values[date.Format("2006-01-02")]
 			line += m.heatmapCell(value, maxValue) + " "
 		}
 		lines = append(lines, line)
 	}
 	lines = append(lines, m.heatmapLegend())
 	return strings.Join(lines, "\n")
+}
+
+func overviewInclusiveEnd(end time.Time) time.Time {
+	if end.IsZero() {
+		return time.Time{}
+	}
+	day := dayOnly(end)
+	if end.Equal(day) {
+		return day.AddDate(0, 0, -1)
+	}
+	return day
 }
 
 func (m Model) monthHeader(start time.Time, weeks int) string {
@@ -579,6 +672,23 @@ func (m Model) renderGroupedHeatmap(rows []usage.ReportRow, groupBy string) stri
 		strings.TrimRight(cellLine, " "),
 		m.heatmapLegend(),
 	}, "\n")
+}
+
+func (m Model) renderTimeframeSelector() string {
+	s := m.styles()
+	items := make([]string, 0, len(timeframePresets))
+	for i, preset := range timeframePresets {
+		label := preset.label
+		switch {
+		case m.overviewFocus == overviewFocusTimeframe && i == m.timeframeSelection:
+			items = append(items, s.TabActive.Render(label))
+		case i == m.frameIndex:
+			items = append(items, s.Accent.Render(label))
+		default:
+			items = append(items, s.Tab.Render(label))
+		}
+	}
+	return "    " + strings.Join(items, s.Muted.Render(" · "))
 }
 
 func activityBucketLabel(label, groupBy string) string {
