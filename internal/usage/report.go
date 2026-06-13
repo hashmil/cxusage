@@ -2,9 +2,11 @@ package usage
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -485,47 +487,60 @@ func IterTokenEvents(path string) ([]TokenEvent, error) {
 	sessionID := SessionIDForPath(path)
 	metadata := TurnMetadata{Model: UnknownMetadata, Effort: UnknownMetadata, Mode: UnknownMetadata}
 	events := []TokenEvent{}
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.Contains(line, "token_count") && !strings.Contains(line, "turn_context") {
-			continue
+	reader := bufio.NewReaderSize(file, 1024*1024)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			event, ok := parseTokenEventLine(line, sessionID, path, metadata)
+			if event.Metadata != metadata {
+				metadata = event.Metadata
+			}
+			if ok {
+				events = append(events, event)
+			}
 		}
-		var record rawRecord
-		if err := json.Unmarshal([]byte(line), &record); err != nil {
-			continue
-		}
-		if record.Type == "turn_context" {
-			metadata = metadataFromPayload(record.Payload)
-			continue
-		}
-		if record.Type != "event_msg" {
-			continue
-		}
-		var payload tokenPayload
-		if err := json.Unmarshal(record.Payload, &payload); err != nil || payload.Type != "token_count" {
-			continue
-		}
-		if payload.Info.TotalTokenUsage.TotalTokens == 0 && payload.Info.TotalTokenUsage.InputTokens == 0 && payload.Info.TotalTokenUsage.OutputTokens == 0 {
-			continue
-		}
-		timestamp, err := time.Parse(time.RFC3339Nano, record.Timestamp)
 		if err != nil {
-			continue
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, err
 		}
-		events = append(events, TokenEvent{
-			Timestamp: timestamp,
-			Usage:     payload.Info.TotalTokenUsage,
-			SessionID: sessionID,
-			Path:      path,
-			Metadata:  metadata,
-		})
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
 	}
 	return events, nil
+}
+
+func parseTokenEventLine(line []byte, sessionID, path string, metadata TurnMetadata) (TokenEvent, bool) {
+	if !bytes.Contains(line, []byte("token_count")) && !bytes.Contains(line, []byte("turn_context")) {
+		return TokenEvent{Metadata: metadata}, false
+	}
+	var record rawRecord
+	if err := json.Unmarshal(line, &record); err != nil {
+		return TokenEvent{Metadata: metadata}, false
+	}
+	if record.Type == "turn_context" {
+		return TokenEvent{Metadata: metadataFromPayload(record.Payload)}, false
+	}
+	if record.Type != "event_msg" {
+		return TokenEvent{Metadata: metadata}, false
+	}
+	var payload tokenPayload
+	if err := json.Unmarshal(record.Payload, &payload); err != nil || payload.Type != "token_count" {
+		return TokenEvent{Metadata: metadata}, false
+	}
+	if payload.Info.TotalTokenUsage.TotalTokens == 0 && payload.Info.TotalTokenUsage.InputTokens == 0 && payload.Info.TotalTokenUsage.OutputTokens == 0 {
+		return TokenEvent{Metadata: metadata}, false
+	}
+	timestamp, err := time.Parse(time.RFC3339Nano, record.Timestamp)
+	if err != nil {
+		return TokenEvent{Metadata: metadata}, false
+	}
+	return TokenEvent{
+		Timestamp: timestamp,
+		Usage:     payload.Info.TotalTokenUsage,
+		SessionID: sessionID,
+		Path:      path,
+		Metadata:  metadata,
+	}, true
 }
 
 type rawRecord struct {

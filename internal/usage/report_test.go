@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -168,6 +169,27 @@ func TestMalformedJSONLIsIgnored(t *testing.T) {
 	dir := t.TempDir()
 	writeRollout(t, dir, "rollout-2026-06-01T00-00-00-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl",
 		"{bad json",
+		tokenEvent(t, "2026-06-01T00:02:00Z",
+			Usage{InputTokens: 100, OutputTokens: 10, TotalTokens: 110},
+			Usage{InputTokens: 100, OutputTokens: 10, TotalTokens: 110},
+		),
+	)
+
+	report, err := BuildReport([]string{dir}, mustTime("2026-06-01T00:00:00Z"), mustTime("2026-06-02T00:00:00Z"), "day", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if report.Totals.TotalTokens != 110 {
+		t.Fatalf("total tokens = %d, want 110", report.Totals.TotalTokens)
+	}
+}
+
+func TestOversizedIrrelevantJSONLLineIsIgnored(t *testing.T) {
+	dir := t.TempDir()
+	oversized := `{"timestamp":"2026-06-01T00:01:00Z","type":"response_item","payload":{"text":"` + strings.Repeat("x", 17*1024*1024) + `"}}`
+	writeRollout(t, dir, "rollout-2026-06-01T00-00-00-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl",
+		oversized,
 		tokenEvent(t, "2026-06-01T00:02:00Z",
 			Usage{InputTokens: 100, OutputTokens: 10, TotalTokens: 110},
 			Usage{InputTokens: 100, OutputTokens: 10, TotalTokens: 110},
