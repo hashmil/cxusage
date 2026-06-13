@@ -31,6 +31,7 @@ This is an unofficial open source tool for enterprise Codex users who can run Co
 - Single terminal chart view with compact axis labels
 - JSON output for scripts
 - Default timeframe: last 30 days
+- Presets for today, week, month, current year, and all time
 - Estimated cost column using model-specific OpenAI pricing constants where the local logs expose a known model
 
 ## Who It Is For
@@ -234,6 +235,10 @@ cxusage --no-animation
 --week               current week
 --last-week          previous week
 --month              current month
+--year               current year
+--current-year       current year
+--all                all available local logs
+--all-time           all available local logs
 --since YYYY-MM-DD   custom start date
 --until YYYY-MM-DD   custom end date, inclusive
 --group-by VALUE     day, week, month, session, model, effort, mode, model-effort

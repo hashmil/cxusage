@@ -189,15 +189,17 @@ type Report struct {
 }
 
 type TimeframeOptions struct {
-	Last      string
-	Today     bool
-	Yesterday bool
-	Week      bool
-	LastWeek  bool
-	Month     bool
-	Since     string
-	Until     string
-	Now       time.Time
+	Last        string
+	Today       bool
+	Yesterday   bool
+	Week        bool
+	LastWeek    bool
+	Month       bool
+	CurrentYear bool
+	All         bool
+	Since       string
+	Until       string
+	Now         time.Time
 }
 
 func ResolveTimeframe(options TimeframeOptions) (time.Time, time.Time, string, error) {
@@ -213,6 +215,8 @@ func ResolveTimeframe(options TimeframeOptions) (time.Time, time.Time, string, e
 	}
 
 	switch {
+	case options.All:
+		return time.Time{}, local, "All Time", nil
 	case options.Today:
 		start := midnight(local)
 		return start, local, "Today", nil
@@ -228,6 +232,9 @@ func ResolveTimeframe(options TimeframeOptions) (time.Time, time.Time, string, e
 	case options.Month:
 		start := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
 		return start, local, "Current Month", nil
+	case options.CurrentYear:
+		start := time.Date(year, 1, 1, 0, 0, 0, 0, time.Local)
+		return start, local, "Current Year", nil
 	case options.Since != "" || options.Until != "":
 		start := time.Time{}
 		if options.Since != "" {

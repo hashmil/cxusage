@@ -484,7 +484,7 @@ func TestOverviewRendersTimeframeSelectorBelowHeatmap(t *testing.T) {
 	if !(heatmapIndex < rangeIndex && rangeIndex < recentIndex) {
 		t.Fatalf("range selector should render below heatmap and above recent usage, got:\n%s", rendered)
 	}
-	for _, expected := range []string{"Last 30d", "Today", "Yesterday", "Current Week", "Last Week", "Current Month"} {
+	for _, expected := range []string{"Last 30d", "Today", "Yesterday", "Current Week", "Last Week", "Current Month", "Current Year", "All Time"} {
 		if !strings.Contains(rendered, expected) {
 			t.Fatalf("range selector should include %q, got:\n%s", expected, rendered)
 		}
@@ -527,6 +527,15 @@ func TestFShortcutStillCyclesTimeframe(t *testing.T) {
 	}
 	if timeframeLabel(updated.timeframe) != "Today" {
 		t.Fatalf("f should still cycle to Today, got %q", timeframeLabel(updated.timeframe))
+	}
+}
+
+func TestTimeframeLabelSupportsYearAndAllTime(t *testing.T) {
+	if got := timeframeLabel(usage.TimeframeOptions{CurrentYear: true}); got != "Current Year" {
+		t.Fatalf("current year label = %q, want Current Year", got)
+	}
+	if got := timeframeLabel(usage.TimeframeOptions{All: true}); got != "All Time" {
+		t.Fatalf("all time label = %q, want All Time", got)
 	}
 }
 

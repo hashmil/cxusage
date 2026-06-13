@@ -34,6 +34,41 @@ func TestParseArgsRejectsUnknownTheme(t *testing.T) {
 	}
 }
 
+func TestParseArgsSupportsAllTimeAlias(t *testing.T) {
+	opts, err := ParseArgs([]string{"--all-time"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.Timeframe.All {
+		t.Fatalf("all = false, want true")
+	}
+	if opts.Timeframe.Last != "" {
+		t.Fatalf("last = %q, want empty when all-time is selected", opts.Timeframe.Last)
+	}
+}
+
+func TestParseArgsSupportsCurrentYearAlias(t *testing.T) {
+	opts, err := ParseArgs([]string{"--current-year"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.Timeframe.CurrentYear {
+		t.Fatalf("current year = false, want true")
+	}
+	if opts.Timeframe.Last != "" {
+		t.Fatalf("last = %q, want empty when current-year is selected", opts.Timeframe.Last)
+	}
+}
+
+func TestHelpTextDocumentsYearAndAllTime(t *testing.T) {
+	help := HelpText("cxusage")
+	for _, expected := range []string{"--year", "--current-year", "--all", "--all-time"} {
+		if !strings.Contains(help, expected) {
+			t.Fatalf("help should include %q, got:\n%s", expected, help)
+		}
+	}
+}
+
 func TestJSONOutputUsesCodexHomeFixture(t *testing.T) {
 	root := t.TempDir()
 	sessions := filepath.Join(root, "sessions")

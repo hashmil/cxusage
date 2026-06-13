@@ -90,7 +90,16 @@ func NewModel(options Options) Model {
 	if options.GroupBy == "" {
 		options.GroupBy = "day"
 	}
-	if options.Timeframe.Last == "" && !options.Timeframe.Today && !options.Timeframe.Yesterday && !options.Timeframe.Week && !options.Timeframe.LastWeek && !options.Timeframe.Month && options.Timeframe.Since == "" && options.Timeframe.Until == "" {
+	if options.Timeframe.Last == "" &&
+		!options.Timeframe.Today &&
+		!options.Timeframe.Yesterday &&
+		!options.Timeframe.Week &&
+		!options.Timeframe.LastWeek &&
+		!options.Timeframe.Month &&
+		!options.Timeframe.CurrentYear &&
+		!options.Timeframe.All &&
+		options.Timeframe.Since == "" &&
+		options.Timeframe.Until == "" {
 		options.Timeframe.Last = "30d"
 	}
 	frameIndex := timeframeIndex(options.Timeframe)
@@ -706,7 +715,32 @@ func (m Model) renderTimeframeSelector() string {
 			items = append(items, s.Tab.Render(label))
 		}
 	}
-	return "    " + strings.Join(items, s.Muted.Render(" · "))
+	separator := s.Muted.Render(" · ")
+	indent := "    "
+	available := 116
+	if m.width > 0 {
+		available = max(20, m.width-ansi.StringWidth(indent))
+	}
+	lines := []string{}
+	current := ""
+	for _, item := range items {
+		next := item
+		if current != "" {
+			next = current + separator + item
+		}
+		if ansi.StringWidth(next) <= available {
+			current = next
+			continue
+		}
+		if current != "" {
+			lines = append(lines, indent+current)
+		}
+		current = item
+	}
+	if current != "" {
+		lines = append(lines, indent+current)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func activityBucketLabel(label, groupBy string) string {
@@ -1159,6 +1193,8 @@ var timeframePresets = []timeframePreset{
 	{label: "Current Week", options: usage.TimeframeOptions{Week: true}},
 	{label: "Last Week", options: usage.TimeframeOptions{LastWeek: true}},
 	{label: "Current Month", options: usage.TimeframeOptions{Month: true}},
+	{label: "Current Year", options: usage.TimeframeOptions{CurrentYear: true}},
+	{label: "All Time", options: usage.TimeframeOptions{All: true}},
 }
 
 func timeframeIndex(options usage.TimeframeOptions) int {
@@ -1168,7 +1204,9 @@ func timeframeIndex(options usage.TimeframeOptions) int {
 			preset.options.Yesterday == options.Yesterday &&
 			preset.options.Week == options.Week &&
 			preset.options.LastWeek == options.LastWeek &&
-			preset.options.Month == options.Month {
+			preset.options.Month == options.Month &&
+			preset.options.CurrentYear == options.CurrentYear &&
+			preset.options.All == options.All {
 			return i
 		}
 	}

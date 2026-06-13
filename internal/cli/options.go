@@ -42,6 +42,10 @@ func ParseArgs(args []string) (Options, error) {
 	fs.BoolVar(&opts.Timeframe.Week, "week", false, "show usage from the current week")
 	fs.BoolVar(&opts.Timeframe.LastWeek, "last-week", false, "show usage from last week")
 	fs.BoolVar(&opts.Timeframe.Month, "month", false, "show usage from the current month")
+	fs.BoolVar(&opts.Timeframe.CurrentYear, "year", false, "show usage from the current year")
+	fs.BoolVar(&opts.Timeframe.CurrentYear, "current-year", false, "show usage from the current year")
+	fs.BoolVar(&opts.Timeframe.All, "all", false, "show all available usage")
+	fs.BoolVar(&opts.Timeframe.All, "all-time", false, "show all available usage")
 	fs.StringVar(&opts.Timeframe.Since, "since", "", "inclusive start date in YYYY-MM-DD")
 	fs.StringVar(&opts.Timeframe.Until, "until", "", "inclusive end date in YYYY-MM-DD")
 	fs.StringVar(&opts.CodexHome, "codex-home", "", "path to CODEX_HOME; defaults to ~/.codex")
@@ -63,7 +67,22 @@ func ParseArgs(args []string) (Options, error) {
 	if opts.GroupBy == "" {
 		opts.GroupBy = DefaultGroupBy
 	}
+	if hasExplicitTimeframe(opts.Timeframe) {
+		opts.Timeframe.Last = ""
+	}
 	return opts, nil
+}
+
+func hasExplicitTimeframe(options usage.TimeframeOptions) bool {
+	return options.Today ||
+		options.Yesterday ||
+		options.Week ||
+		options.LastWeek ||
+		options.Month ||
+		options.CurrentYear ||
+		options.All ||
+		options.Since != "" ||
+		options.Until != ""
 }
 
 func BuildReport(opts Options) (usage.Report, error) {
@@ -102,6 +121,10 @@ Timeframe:
   --week               current week
   --last-week          previous week
   --month              current month
+  --year               current year
+  --current-year       current year
+  --all                all available local logs
+  --all-time           all available local logs
   --since YYYY-MM-DD   custom start date
   --until YYYY-MM-DD   custom end date, inclusive
 

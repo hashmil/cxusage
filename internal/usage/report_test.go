@@ -271,6 +271,41 @@ func TestDefaultTimeframeIsLast30Days(t *testing.T) {
 	}
 }
 
+func TestCurrentYearTimeframeStartsOnJanuaryFirst(t *testing.T) {
+	now := mustTime("2026-06-13T12:34:56Z")
+	start, end, label, err := ResolveTimeframe(TimeframeOptions{CurrentYear: true, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if label != "Current Year" {
+		t.Fatalf("label = %q, want Current Year", label)
+	}
+	wantStart := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local)
+	if !start.Equal(wantStart) {
+		t.Fatalf("start = %s, want %s", start, wantStart)
+	}
+	if !end.Equal(now) {
+		t.Fatalf("end = %s, want %s", end, now)
+	}
+}
+
+func TestAllTimeTimeframeHasOpenStart(t *testing.T) {
+	now := mustTime("2026-06-13T12:34:56Z")
+	start, end, label, err := ResolveTimeframe(TimeframeOptions{All: true, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if label != "All Time" {
+		t.Fatalf("label = %q, want All Time", label)
+	}
+	if !start.IsZero() {
+		t.Fatalf("start = %s, want zero time", start)
+	}
+	if !end.Equal(now) {
+		t.Fatalf("end = %s, want %s", end, now)
+	}
+}
+
 func mustTime(value string) time.Time {
 	t, err := time.Parse(time.RFC3339, value)
 	if err != nil {
